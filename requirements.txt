@@ -1,0 +1,6 @@
+opencv-python
+face-recognition
+Pillow
+imutils
+RPi.GPIO          # Solo para Raspberry Pi (control cerradura)
+numpy
