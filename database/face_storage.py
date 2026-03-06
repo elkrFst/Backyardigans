@@ -1,5 +1,6 @@
 import os
 import shutil
+import cv2
 
 class FaceStorage:
     def __init__(self, carpeta="rostros_conocidos"):
@@ -26,9 +27,14 @@ class FaceStorage:
         os.rename(ruta_vieja, ruta_nueva)
 
     def guardar(self, frame, nombre):
+        """Guarda un *frame* de OpenCV en la carpeta de rostros.
+
+        El parámetro *nombre* puede venir con o sin ".jpg"; la función se asegura de
+        añadir la extensión. Devuelve la ruta completa donde se guardó la imagen.
+        """
         # Asegurar extensión .jpg
-        if not nombre.endswith('.jpg'):
+        if not nombre.lower().endswith('.jpg'):
             nombre += '.jpg'
         ruta = os.path.join(self.carpeta, nombre)
-        cv2.imwrite(ruta, frame)  # Nota: necesitas importar cv2 aquí o pasar el frame ya en formato correcto
+        cv2.imwrite(ruta, frame)
         return ruta

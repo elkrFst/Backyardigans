@@ -1,15 +1,15 @@
-# Colores corporativos
+# Colores corporativos (tema oscuro/futurista)
 colores = {
-    "fondo": "#f0f0f0",
-    "texto": "#333333",
-    "boton_principal": "#4CAF50",   # Verde
-    "boton_secundario": "#2196F3",   # Azul
-    "admin": "#FF5722",               # Naranja
-    "volver": "#9E9E9E",              # Gris
-    "capturar": "#FF9800",            # Naranja claro
-    "agregar": "#4CAF50",
-    "eliminar": "#F44336",
-    "renombrar": "#FFC107"
+    "fondo": "#1e1e2f",        # azul muy oscuro
+    "texto": "#e0e0ff",        # claro
+    "boton_principal": "#3f51b5",   # azul intenso
+    "boton_secundario": "#607d8b",  # gris azulado
+    "admin": "#ff5722",              # naranja vivo
+    "volver": "#9e1e63",             # magenta oscuro
+    "capturar": "#ff9800",           # naranja claro
+    "agregar": "#4caf50",
+    "eliminar": "#f44336",
+    "renombrar": "#ffc107"
 }
 
 # Fuentes
