@@ -14,10 +14,10 @@ colores = {
 
 # Fuentes
 fuentes = {
-    "titulo": ("Helvetica", 24, "bold"),
-    "boton": ("Helvetica", 14, "bold"),
-    "boton_pequeno": ("Helvetica", 10, "bold"),
-    "resultado": ("Helvetica", 18, "bold"),
-    "normal": ("Helvetica", 12),
-    "cuenta": ("Helvetica", 36, "bold")
+    "titulo": ("Helvetica", 16, "bold"),
+    "boton": ("Helvetica", 11, "bold"),
+    "boton_pequeno": ("Helvetica", 8, "bold"),
+    "resultado": ("Helvetica", 12, "bold"),
+    "normal": ("Helvetica", 9),
+    "cuenta": ("Helvetica", 24, "bold")
 }

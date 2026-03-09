@@ -9,7 +9,7 @@ class AdminWindow(tk.Toplevel):
     def __init__(self, parent, face_storage, callback_actualizar):
         super().__init__(parent)
         self.title("Administración de Rostros")
-        self.geometry("500x400")
+        self.geometry("400x300")
         self.configure(bg=colores["fondo"])
         self.face_storage = face_storage
         self.callback = callback_actualizar

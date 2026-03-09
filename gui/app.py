@@ -22,7 +22,7 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Sistema de Lockers - Profesional")
-        self.root.geometry("900x700")
+        self.root.geometry("800x480")
         self.root.configure(bg=colores["fondo"])
         self.root.protocol("WM_DELETE_WINDOW", self.cerrar)
 
@@ -65,7 +65,7 @@ class App:
 
     def crear_fondo(self):
         """Genera un fondo 'futurista' con un degradado y líneas de rejilla."""
-        width, height = 900, 700
+        width, height = 800, 480
         img = Image.new('RGB', (width, height), colores['fondo'])
         from PIL import ImageDraw
         draw = ImageDraw.Draw(img)
@@ -93,23 +93,23 @@ class App:
     def mostrar_menu_principal(self):
         self.limpiar_frame()
         # Ventana central para agrupar elementos
-        frame = ttk.Frame(self.root, padding=20)
+        frame = ttk.Frame(self.root, padding=10)
         frame.pack(expand=True)
         # mantener juego visible (recolocar para asegurar primer plano)
         if hasattr(self, 'minijuego'):
             self.minijuego.canvas.place(x=10, y=10)
 
         # Título
-        ttk.Label(frame, text="Sistema de Acceso a Lockers", font=fuentes["titulo"]).pack(pady=30)
+        ttk.Label(frame, text="Sistema de Acceso a Lockers", font=fuentes["titulo"]).pack(pady=15)
 
         # Botones principales
         btn_abrir = ttk.Button(frame, text="Abrir Locker", command=self.abrir_locker,
                                 style='Primary.TButton')
-        btn_abrir.pack(pady=20, ipadx=20, ipady=10)
+        btn_abrir.pack(pady=10, ipadx=15, ipady=8)
 
         btn_registrar = ttk.Button(frame, text="Registrar Locker", command=self.registrar_locker,
                                    style='Secondary.TButton')
-        btn_registrar.pack(pady=20, ipadx=20, ipady=10)
+        btn_registrar.pack(pady=10, ipadx=15, ipady=8)
 
         # Botón Admin en esquina inferior derecha
         btn_admin = ttk.Button(self.root, text="Admin", command=self.abrir_admin,
@@ -137,14 +137,14 @@ class App:
             self.minijuego.canvas.place(x=10, y=10)
         # Video
         self.label_video = ttk.Label(self.root, background="black")
-        self.label_video.pack(pady=10)
+        self.label_video.pack(pady=5)
 
         self.label_resultado = ttk.Label(self.root, text="", font=fuentes["resultado"])
-        self.label_resultado.pack(pady=10)
+        self.label_resultado.pack(pady=5)
 
         btn_volver = ttk.Button(self.root, text="Volver al menú", command=self.volver_menu,
                                  style='Secondary.TButton')
-        btn_volver.pack(pady=10, ipadx=20, ipady=10)
+        btn_volver.pack(pady=5, ipadx=15, ipady=6)
 
         # Iniciar cámara (index configurable con variable de entorno CAMERA_INDEX)
         cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
@@ -214,21 +214,21 @@ class App:
         if hasattr(self, 'minijuego'):
             self.minijuego.canvas.place(x=10, y=10)
         # Información simple en lugar de pedir nombre
-        ttk.Label(self.root, text="Registro de nuevo usuario", font=fuentes["titulo"]).pack(pady=20)
+        ttk.Label(self.root, text="Registro de nuevo usuario", font=fuentes["titulo"]).pack(pady=10)
 
         self.label_video = ttk.Label(self.root, background="black")
-        self.label_video.pack(pady=10)
+        self.label_video.pack(pady=5)
 
         self.btn_capturar = ttk.Button(self.root, text="Tomar foto", command=self.iniciar_cuenta_regresiva,
                                       style='Primary.TButton', state="disabled")
-        self.btn_capturar.pack(pady=5, ipadx=20, ipady=10)
+        self.btn_capturar.pack(pady=3, ipadx=15, ipady=6)
 
         self.label_cuenta = ttk.Label(self.root, text="", font=fuentes["cuenta"], foreground="red")
         self.label_cuenta.pack()
 
         btn_volver = ttk.Button(self.root, text="Volver", command=self.volver_menu,
                                style='Secondary.TButton')
-        btn_volver.pack(pady=10, ipadx=20, ipady=10)
+        btn_volver.pack(pady=5, ipadx=15, ipady=6)
 
         cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
         try:

@@ -4,12 +4,12 @@ import random
 class DinoGame:
     """Mini juego estilo dinosaurio de Chrome en un canvas pequeño."""
     def __init__(self, parent):
-        self.canvas = tk.Canvas(parent, width=200, height=80, bg="black", highlightthickness=0)
+        self.canvas = tk.Canvas(parent, width=150, height=60, bg="black", highlightthickness=0)
         self.canvas.place(x=10, y=10)
         self.parent = parent
-        self.dino = self.canvas.create_rectangle(10, 60, 30, 80, fill="white")
+        self.dino = self.canvas.create_rectangle(10, 42, 25, 60, fill="white")
         self.obstacles = []
-        self.gravity = 1.5
+        self.gravity = 1.2
         self.vel_y = 0
         self.jumping = False
         parent.bind("<space>", self.jump)
@@ -26,15 +26,15 @@ class DinoGame:
         self.vel_y += self.gravity
         self.canvas.move(self.dino, 0, self.vel_y)
         coords = self.canvas.coords(self.dino)
-        if coords[3] >= 80:
-            self.canvas.move(self.dino, 0, 80 - coords[3])
+        if coords[3] >= 60:
+            self.canvas.move(self.dino, 0, 60 - coords[3])
             self.vel_y = 0
             self.jumping = False
 
         # generar obstáculos con probabilidad
-        if not self.obstacles or self.canvas.coords(self.obstacles[-1])[0] < 150:
+        if not self.obstacles or self.canvas.coords(self.obstacles[-1])[0] < 120:
             if self._rand.random() < 0.03:
-                obs = self.canvas.create_rectangle(200, 60, 220, 80, fill="green")
+                obs = self.canvas.create_rectangle(150, 45, 160, 60, fill="green")
                 self.obstacles.append(obs)
 
         # mover obstáculos y detectar colisiones
