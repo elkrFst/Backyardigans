@@ -12,7 +12,6 @@ import cv2
 from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from gui.admin_window import AdminWindow
-from gui.minigame import DinoGame
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
 from database.face_storage import FaceStorage
@@ -23,6 +22,7 @@ class App:
         self.root = root
         self.root.title("Sistema de Lockers - Profesional")
         self.root.geometry("800x480")
+        self.root.resizable(False, False)  # Evita redimensionar la ventana para mantener alineación
         self.root.configure(bg=colores["fondo"])
         self.root.protocol("WM_DELETE_WINDOW", self.cerrar)
 
@@ -46,9 +46,7 @@ class App:
         btn_salir.place(relx=0.0, rely=1.0, anchor='sw', x=10, y=-10)
         btn_salir.persistent = True
 
-        # mini-juego dinosaurio en esquina superior izquierda
-        self.minijuego = DinoGame(self.root)
-        self.minijuego.canvas.persistent = True
+        # ya no usamos el mini‑juego; interfaz más limpia
 
         self.camera_handler = None
         self.face_recognizer = FaceRecognizer()
@@ -64,40 +62,31 @@ class App:
         self.root.destroy()
 
     def crear_fondo(self):
-        """Genera un fondo 'futurista' con un degradado y líneas de rejilla."""
-        width, height = 800, 480
-        img = Image.new('RGB', (width, height), colores['fondo'])
-        from PIL import ImageDraw
-        draw = ImageDraw.Draw(img)
-        # líneas de rejilla tenues
-        for x in range(0, width, 50):
-            draw.line([(x, 0), (x, height)], fill=(40, 40, 70))
-        for y in range(0, height, 50):
-            draw.line([(0, y), (width, y)], fill=(40, 40, 70))
-        # degradado vertical ligero
-        for y in range(height):
-            shade = int(30 + (y / height) * 50)
-            draw.line([(0, y), (width, y)], fill=(shade, shade, shade + 20))
-        self.fondo_img = ImageTk.PhotoImage(img)
-        label = tk.Label(self.root, image=self.fondo_img)
+        """Establece un fondo sencillo usando el color de tema.
+
+        La interfaz ahora usa un tono claro, así que no hacen falta adornos
+        ni degradados complejos. Se crea un `Label` transparente que ocupa la
+        ventana completa y evita que se vean widgets anteriores al limpiar.
+        """
+        label = tk.Label(self.root, bg=colores['fondo'])
         label.place(x=0, y=0, relwidth=1, relheight=1)
         label.persistent = True
 
     def limpiar_frame(self):
         for widget in self.root.winfo_children():
-            # algunos widgets (exit button, juego) se marcan como persistentes
+            # algunos widgets persistentes (como el botón salir) se mantienen
             if getattr(widget, 'persistent', False):
                 continue
             widget.destroy()
 
     def mostrar_menu_principal(self):
         self.limpiar_frame()
+        # Configurar grid para centrar
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
         # Ventana central para agrupar elementos
         frame = ttk.Frame(self.root, padding=10)
-        frame.pack(expand=True)
-        # mantener juego visible (recolocar para asegurar primer plano)
-        if hasattr(self, 'minijuego'):
-            self.minijuego.canvas.place(x=10, y=10)
+        frame.grid(row=0, column=0)
 
         # Título
         ttk.Label(frame, text="Sistema de Acceso a Lockers", font=fuentes["titulo"]).pack(pady=15)
@@ -132,19 +121,25 @@ class App:
             return
 
         self.limpiar_frame()
-        # mantener juego visible (recolocar para asegurar primer plano)
-        if hasattr(self, 'minijuego'):
-            self.minijuego.canvas.place(x=10, y=10)
+        # Configurar grid para layout fijo
+        self.root.grid_rowconfigure(0, weight=1)  # video ocupa la mayor parte
+        self.root.grid_rowconfigure(1, weight=0)
+        self.root.grid_rowconfigure(2, weight=0)
+        self.root.grid_rowconfigure(3, weight=0)
+        self.root.grid_columnconfigure(0, weight=1)
         # Video
         self.label_video = ttk.Label(self.root, background="black")
-        self.label_video.pack(pady=5)
+        self.label_video.grid(row=0, column=0, sticky='nsew')
 
+        # etiqueta con información adicional del locker
+        self.label_locker = ttk.Label(self.root, text="Locker: --", font=fuentes["resultado"])
+        self.label_locker.grid(row=1, column=0, pady=2)
         self.label_resultado = ttk.Label(self.root, text="", font=fuentes["resultado"])
-        self.label_resultado.pack(pady=5)
+        self.label_resultado.grid(row=2, column=0, pady=2)
 
         btn_volver = ttk.Button(self.root, text="Volver al menú", command=self.volver_menu,
                                  style='Secondary.TButton')
-        btn_volver.pack(pady=5, ipadx=15, ipady=6)
+        btn_volver.grid(row=3, column=0, pady=5)
 
         # Iniciar cámara (index configurable con variable de entorno CAMERA_INDEX)
         cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
@@ -194,11 +189,17 @@ class App:
                                     self.nombres_conocidos, umbral=0.6)
             if nombre:
                 texto = f"Acceso concedido a {nombre}"
+                locker_text = f"Locker abierto: {nombre}"  # placeholder vínculo usuario-locker
             else:
                 texto = "Acceso denegado"
+                locker_text = "Locker abierto: --"
         else:
             texto = "No se detecta rostro"
+            locker_text = "Locker abierto: --"
         self.root.after(0, self.actualizar_resultado, texto)
+        # actualizar también la etiqueta de locker si existe
+        if hasattr(self, 'label_locker') and self.label_locker.winfo_exists():
+            self.root.after(0, lambda: self.label_locker.config(text=locker_text))
 
     def actualizar_resultado(self, texto):
         # la etiqueta puede haber sido destruida si el usuario cambió de pantalla
@@ -210,21 +211,23 @@ class App:
 
     def registrar_locker(self):
         self.limpiar_frame()
-        # mantener juego visible (recolocar para asegurar primer plano)
-        if hasattr(self, 'minijuego'):
-            self.minijuego.canvas.place(x=10, y=10)
-        # Información simple en lugar de pedir nombre
-        ttk.Label(self.root, text="Registro de nuevo usuario", font=fuentes["titulo"]).pack(pady=10)
-
+        # Configurar grid para video a pantalla completa
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        # cámara ocupa toda la ventana durante el registro
         self.label_video = ttk.Label(self.root, background="black")
-        self.label_video.pack(pady=5)
+        self.label_video.grid(row=0, column=0, sticky='nsew')
 
-        self.btn_capturar = ttk.Button(self.root, text="Tomar foto", command=self.iniciar_cuenta_regresiva,
+        # botones y cuenta regresiva se superponen sobre el video en la parte inferior
+        bottom_frame = ttk.Frame(self.root)
+        bottom_frame.place(relx=0.5, rely=0.9, anchor='s')
+
+        self.btn_capturar = ttk.Button(bottom_frame, text="Tomar foto", command=self.iniciar_cuenta_regresiva,
                                       style='Primary.TButton', state="disabled")
-        self.btn_capturar.pack(pady=3, ipadx=15, ipady=6)
+        self.btn_capturar.pack(side='left', padx=5)
 
-        self.label_cuenta = ttk.Label(self.root, text="", font=fuentes["cuenta"], foreground="red")
-        self.label_cuenta.pack()
+        self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
+        self.label_cuenta.pack(side='left', padx=5)
 
         btn_volver = ttk.Button(self.root, text="Volver", command=self.volver_menu,
                                style='Secondary.TButton')
@@ -297,6 +300,8 @@ class App:
             # Convertir a RGB y luego a ImageTk
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(frame_rgb)
+            # Redimensionar para llenar la ventana (800x480)
+            img = img.resize((800, 480), Image.Resampling.LANCZOS)
             imgtk = ImageTk.PhotoImage(image=img)
             self.label_video.imgtk = imgtk
             self.label_video.configure(image=imgtk)

@@ -21,7 +21,9 @@ en caso contrario.
 
 ### Interfaz y extras
 
-- Fondo oscuro/degradado con estilo "futurista".
+- Diseño más claro y moderno con fondo gris suave.
 - Botón de **Salir** fijo en la esquina inferior izquierda.
-- Mini‑juego tipo dinosaurio (presiona barra espaciadora para hacer saltar al dinosaurio) situado
-  en la esquina superior izquierda; funciona en todas las pantallas.
+- La cámara ocupa toda la ventana durante el registro de un nuevo usuario.
+- En la pantalla de apertura se muestra, debajo del video, un área para indicar
+  qué locker se abrió y a qué persona se le concedió acceso.
+- El mini‑juego ha sido eliminado para una experiencia más limpia.
