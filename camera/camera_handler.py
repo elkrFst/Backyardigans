@@ -46,6 +46,11 @@ class CameraHandler:
             self.camara.start()
         self.hilo = threading.Thread(target=self._capturar_loop, daemon=True)
         self.hilo.start()
+        # leer algunos frames de calentamiento para que la primera llamada a
+        # leer_frame() no devuelva None inmediatamente.
+        for _ in range(5):
+            ret, frame = self.camara.read() if not self.usar_picamera else self.camara.read()
+            time.sleep(0.03)
 
     def _capturar_loop(self):
         while self.activo:

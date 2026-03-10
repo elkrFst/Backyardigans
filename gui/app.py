@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 # permitir ejecución directa desde el subdirectorio gui
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -49,6 +50,10 @@ class App:
         # ya no usamos el mini‑juego; interfaz más limpia
 
         self.camera_handler = None
+        # permitir forzar el uso de Picamera mediante variable de entorno
+        # (útil en Raspberry Pi con cámara CSI).
+        self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
+
         self.face_recognizer = FaceRecognizer()
         self.face_storage = FaceStorage("rostros_conocidos")
         self.encodings_conocidos = []
@@ -144,8 +149,18 @@ class App:
         # Iniciar cámara (index configurable con variable de entorno CAMERA_INDEX)
         cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
         try:
-            self.camera_handler = CameraHandler(fuente=cam_index, resolucion=(640, 480))
+            self.camera_handler = CameraHandler(fuente=cam_index,
+                                                resolucion=(640, 480),
+                                                usar_picamera=self.usar_picamera)
             self.camera_handler.iniciar()
+            # esperar un frame válido antes de iniciar el bucle de reconocimiento
+            for _ in range(15):
+                valid, _ = self.camera_handler.leer_frame()
+                if valid:
+                    break
+                time.sleep(0.03)
+            else:
+                raise RuntimeError("La cámara no devolvió imágenes tras iniciar.")
         except RuntimeError as e:
             messagebox.showerror("Error de cámara", str(e))
             self.mostrar_menu_principal()
@@ -229,14 +244,26 @@ class App:
         self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
         self.label_cuenta.pack(side='left', padx=5)
 
+        # usar grid en lugar de pack para mantener coherencia con el layout
+        # principal (grid) y evitar errores de mezcla de gestores de geometría.
         btn_volver = ttk.Button(self.root, text="Volver", command=self.volver_menu,
                                style='Secondary.TButton')
-        btn_volver.pack(pady=5, ipadx=15, ipady=6)
+        btn_volver.grid(row=1, column=0, pady=5, ipadx=15, ipady=6, sticky='s')
 
         cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
         try:
-            self.camera_handler = CameraHandler(fuente=cam_index, resolucion=(640, 480))
+            self.camera_handler = CameraHandler(fuente=cam_index,
+                                                resolucion=(640, 480),
+                                                usar_picamera=self.usar_picamera)
             self.camera_handler.iniciar()
+            # asegurarnos de que la cámara entregue al menos un frame
+            for _ in range(15):
+                valid, _ = self.camera_handler.leer_frame()
+                if valid:
+                    break
+                time.sleep(0.03)
+            else:
+                raise RuntimeError("La cámara no devolvió imágenes tras iniciar.")
         except RuntimeError as e:
             messagebox.showerror("Error de cámara", str(e))
             self.mostrar_menu_principal()
@@ -300,8 +327,12 @@ class App:
             # Convertir a RGB y luego a ImageTk
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(frame_rgb)
-            # Redimensionar para llenar la ventana (800x480)
-            img = img.resize((800, 480), Image.Resampling.LANCZOS)
+            # redimensionar al tamaño actual del widget; evita fijar a 800x480 y elimina
+            # la posibilidad de que el contenido se vea 'negro' si el label aún no tiene
+            # ese tamaño.
+            w = self.label_video.winfo_width() or 800
+            h = self.label_video.winfo_height() or 480
+            img = img.resize((w, h), Image.Resampling.LANCZOS)
             imgtk = ImageTk.PhotoImage(image=img)
             self.label_video.imgtk = imgtk
             self.label_video.configure(image=imgtk)

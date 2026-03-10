@@ -13,8 +13,10 @@ USB/integrada del portátil. Por defecto se intenta abrir la cámara con índice
   export CAMERA_INDEX=1     # Linux/macOS
   ```
 
-- Si se ejecuta en una Pi y se desea usar la cámara CSI, pase `usar_picamera=True` al
-  constructor de `CameraHandler` o haga la selección en el código.
+- Si se ejecuta en una Pi y se desea usar la cámara CSI, active el soporte mediante la
+  variable de entorno `USAR_PICAMERA` (valores admitidos: `1`, `true`, `yes`).
+  El programa automáticamente pasará esta opción a `CameraHandler` en las pantallas
+  de apertura y registro.
 
 El código también imprime un mensaje cuando la cámara se abre correctamente y da un error
 en caso contrario.
