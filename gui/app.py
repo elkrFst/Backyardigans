@@ -308,13 +308,18 @@ class App:
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locations = face_recognition.face_locations(rgb)
         if locations:
+            # detener cámara para que no sobrescriba la captura
+            if self.camera_handler:
+                self.camera_handler.stop()
             # Guardar usando el almacenamiento centralizado
             ruta = self.face_storage.guardar(frame, nombre)
-            # actualizar etiqueta con fecha y hora de registro en zona México
+            # mostrar la foto capturada en el cuadro gris
+            self.mostrar_frame(frame)
+            # actualizar etiqueta con fecha y hora de registro
             hilo = time.strftime("%d/%m/%Y %H:%M:%S")
             self.lbl_registro.config(text=hilo)
-            # volver al menú tras un segundo para que el usuario vea la hora
-            self.root.after(1000, self.volver_menu)
+            # esperar unos segundos antes de volver al menú
+            self.root.after(4000, self.volver_menu)
         else:
             self.root.after(0, lambda: messagebox.showerror("Error", "No se detectó rostro. Intente de nuevo."))
             self.root.after(0, lambda: self.btn_capturar.config(state="normal"))
