@@ -1,4 +1,5 @@
 import tkinter as tk
+import tkinter.ttk as ttk
 from tkinter import messagebox, simpledialog
 from gui.styles import colores, fuentes
 from database.face_storage import FaceStorage
@@ -8,7 +9,7 @@ class AdminWindow(tk.Toplevel):
     def __init__(self, parent, face_storage, callback_actualizar):
         super().__init__(parent)
         self.title("Administración de Rostros")
-        self.geometry("500x400")
+        self.geometry("400x300")
         self.configure(bg=colores["fondo"])
         self.face_storage = face_storage
         self.callback = callback_actualizar
@@ -26,17 +27,17 @@ class AdminWindow(tk.Toplevel):
         self.cargar_lista()
 
         # Botones
-        frame_botones = tk.Frame(self, bg=colores["fondo"])
+        frame_botones = ttk.Frame(self)
         frame_botones.pack(pady=5)
 
-        tk.Button(frame_botones, text="Agregar", command=self.agregar,
-                  bg=colores["agregar"], fg="white", font=fuentes["boton"], relief="flat", padx=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(frame_botones, text="Eliminar", command=self.eliminar,
-                  bg=colores["eliminar"], fg="white", font=fuentes["boton"], relief="flat", padx=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(frame_botones, text="Renombrar", command=self.renombrar,
-                  bg=colores["renombrar"], fg="white", font=fuentes["boton"], relief="flat", padx=10).pack(side=tk.LEFT, padx=5)
-        tk.Button(frame_botones, text="Cerrar", command=self.destroy,
-                  bg=colores["volver"], fg="white", font=fuentes["boton"], relief="flat", padx=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_botones, text="Agregar", command=self.agregar,
+                   style='Primary.TButton').pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_botones, text="Eliminar", command=self.eliminar,
+                   style='Secondary.TButton').pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_botones, text="Renombrar", command=self.renombrar,
+                   style='Secondary.TButton').pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_botones, text="Cerrar", command=self.destroy,
+                   style='Secondary.TButton').pack(side=tk.LEFT, padx=5)
 
     def cargar_lista(self):
         self.lista.delete(0, tk.END)
