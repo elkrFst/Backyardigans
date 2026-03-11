@@ -12,7 +12,6 @@ from tkinter import messagebox
 import cv2
 from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
-from gui.admin_window import AdminWindow
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
 from database.face_storage import FaceStorage
@@ -23,9 +22,15 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Sistema de Lockers - Profesional")
-        self.root.geometry("800x480")
-        self.root.resizable(False, False)  # Evita redimensionar la ventana para mantener alineación
+
+        # pantalla completa en Raspberry
+        self.root.attributes('-fullscreen', True)
+        # para desarrollo se puede salir con Esc
+        self.root.bind('<Escape>', lambda e: self.root.attributes('-fullscreen', False))
+
+        # también fijamos fondo y bloqueamos redimensionado manual
         self.root.configure(bg=colores["fondo"])
+        self.root.resizable(False, False)
         self.root.protocol("WM_DELETE_WINDOW", self.cerrar)
 
         # fondo dinámico antes de cualquier widget
@@ -39,9 +44,12 @@ class App:
             pass
         self.style.configure('TFrame', background=colores['fondo'])
         self.style.configure('TLabel', background=colores['fondo'], foreground=colores['texto'], font=fuentes['normal'])
-        self.style.configure('Primary.TButton', font=fuentes['boton'], padding=10)
-        self.style.configure('Secondary.TButton', font=fuentes['boton'], padding=10)
-        self.style.configure('Small.TButton', font=fuentes['boton_pequeno'], padding=5)
+        self.style.configure('Primary.TButton', font=fuentes['boton'], padding=10,
+                             background=colores['boton_principal'], foreground=colores['texto'])
+        self.style.configure('Secondary.TButton', font=fuentes['boton'], padding=10,
+                             background=colores['boton_secundario'], foreground=colores['texto'])
+        self.style.configure('Small.TButton', font=fuentes['boton_pequeno'], padding=5,
+                             background=colores['boton_secundario'], foreground=colores['texto'])
 
         # botón salir persistente
         btn_salir = ttk.Button(self.root, text="Salir", command=self.cerrar, style='Secondary.TButton')
@@ -59,6 +67,7 @@ class App:
         self.face_storage = FaceStorage("rostros_conocidos")
         self.encodings_conocidos = []
         self.nombres_conocidos = []
+        self.modo = None                # 'abrir' o 'registrar' o None
 
         self.mostrar_menu_principal()
 
@@ -70,9 +79,9 @@ class App:
     def crear_fondo(self):
         """Establece un fondo sencillo usando el color de tema.
 
-        La interfaz ahora usa un tono claro, así que no hacen falta adornos
-        ni degradados complejos. Se crea un `Label` transparente que ocupa la
-        ventana completa y evita que se vean widgets anteriores al limpiar.
+        No se necesitan imágenes complejas: un label del color de fondo
+        cubre toda la ventana y garantiza que los widgets previos no sean
+        visibles cuando se cambia de pantalla.
         """
         label = tk.Label(self.root, bg=colores['fondo'])
         label.place(x=0, y=0, relwidth=1, relheight=1)
@@ -86,75 +95,81 @@ class App:
             widget.destroy()
 
     def mostrar_menu_principal(self):
+        """Diseño de pantalla principal inspirado en la captura de 800×480.
+
+        - Encabezado con fecha y hora de México
+        - Área central con marco gris para la foto/video
+        - Panel derecho con dos recuadros de información
+        - Barra inferior con dos botones grandes lado a lado
+        """
         self.limpiar_frame()
-        # Configurar grid para centrar
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-        # Ventana central para agrupar elementos
-        frame = ttk.Frame(self.root, padding=10)
-        frame.grid(row=0, column=0)
 
-        # Título
-        ttk.Label(frame, text="Sistema de Acceso a Lockers", font=fuentes["titulo"]).pack(pady=15)
+        # configurar grid de la ventana principal
+        # filas: 0 = encabezado, 1 = contenido, 2 = botones
+        self.root.grid_rowconfigure(0, weight=0)
+        self.root.grid_rowconfigure(1, weight=1)
+        self.root.grid_rowconfigure(2, weight=0)
+        self.root.grid_columnconfigure(0, weight=3)
+        self.root.grid_columnconfigure(1, weight=1)
 
-        # Botones principales
-        btn_abrir = ttk.Button(frame, text="Abrir Locker", command=self.abrir_locker,
-                                style='Primary.TButton')
-        btn_abrir.pack(pady=10, ipadx=15, ipady=8)
+        # encabezado
+        self.lbl_fecha = tk.Label(self.root, font=fuentes["titulo"],
+                                  bg=colores["panel"], fg=colores["texto"])
+        self.lbl_fecha.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(5,0))
+        self.actualizar_header()
 
-        btn_registrar = ttk.Button(frame, text="Registrar Locker", command=self.registrar_locker,
-                                   style='Secondary.TButton')
-        btn_registrar.pack(pady=10, ipadx=15, ipady=8)
+        # marco central para imagen (placeholder gris)
+        self.frame_central = tk.Frame(self.root, bg="#bbbbbb", bd=2, relief='ridge')
+        self.frame_central.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
+        self.label_video = ttk.Label(self.frame_central, background="#dddddd")
+        self.label_video.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-        # Botón Admin en esquina inferior derecha
-        btn_admin = ttk.Button(self.root, text="Admin", command=self.abrir_admin,
-                               style='Small.TButton')
-        btn_admin.place(relx=0.95, rely=0.95, anchor="se")
+        # panel de información derecha
+        frame_info = tk.Frame(self.root, bg=colores["panel"], bd=0)
+        frame_info.grid(row=1, column=1, sticky='nsew', padx=10, pady=10)
+        self.lbl_registro = tk.Label(frame_info, text="Fecha y hora de registro",
+                                      bg=colores["info_bg"], fg=colores["texto"],
+                                      font=fuentes["normal"], wraplength=120, justify='center')
+        self.lbl_registro.pack(pady=5, padx=5, fill='x')
+        self.lbl_acceso = tk.Label(frame_info, text="",
+                                   bg=colores["info_bg"], fg=colores["texto"],
+                                   font=fuentes["normal"], wraplength=120, justify='center')
+        self.lbl_acceso.pack(pady=5, padx=5, fill='x')
+
+        # botones inferiores
+        self.btn_left = ttk.Button(self.root, text="🔓 Abrir Locker", command=self.abrir_locker,
+                                   style='Primary.TButton')
+        self.btn_right = ttk.Button(self.root, text="📝 Registrar Locker", command=self.registrar_locker,
+                                    style='Secondary.TButton')
+        self.btn_left.grid(row=2, column=0, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
+        self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
-        # Ventana emergente de administración
-        AdminWindow(self.root, self.face_storage, self.actualizar_lista_encodings)
+        # ya no se utiliza; método mantenido solo para compatibilidad
+        pass
 
     def actualizar_lista_encodings(self):
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
 
-    def abrir_locker(self):
-        # Cargar encodings
-        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
-        if not self.encodings_conocidos:
-            messagebox.showwarning("Sin registros", "No hay rostros registrados. Registre uno primero.")
-            self.mostrar_menu_principal()
-            return
+    def actualizar_header(self):
+        """Actualiza la etiqueta de fecha/hora cada segundo.
 
-        self.limpiar_frame()
-        # Configurar grid para layout fijo
-        self.root.grid_rowconfigure(0, weight=1)  # video ocupa la mayor parte
-        self.root.grid_rowconfigure(1, weight=0)
-        self.root.grid_rowconfigure(2, weight=0)
-        self.root.grid_rowconfigure(3, weight=0)
-        self.root.grid_columnconfigure(0, weight=1)
-        # Video
-        self.label_video = ttk.Label(self.root, background="black")
-        self.label_video.grid(row=0, column=0, sticky='nsew')
+        Se usa la hora local del sistema. Si la Pi está configurada a la zona
+        de México obtendrá la hora correcta.
+        """
+        ahora = time.strftime("%d/%m/%Y %H:%M:%S")
+        self.lbl_fecha.config(text=ahora)
+        self.root.after(1000, self.actualizar_header)
 
-        # etiqueta con información adicional del locker
-        self.label_locker = ttk.Label(self.root, text="Locker: --", font=fuentes["resultado"])
-        self.label_locker.grid(row=1, column=0, pady=2)
-        self.label_resultado = ttk.Label(self.root, text="", font=fuentes["resultado"])
-        self.label_resultado.grid(row=2, column=0, pady=2)
-
-        btn_volver = ttk.Button(self.root, text="Volver al menú", command=self.volver_menu,
-                                 style='Secondary.TButton')
-        btn_volver.grid(row=3, column=0, pady=5)
-
-        # Iniciar cámara (index configurable con variable de entorno CAMERA_INDEX)
+    def preparar_camera(self):
+        """Inicia el handler de cámara y arranca el hilo correspondiente al modo."""
         cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
         try:
             self.camera_handler = CameraHandler(fuente=cam_index,
                                                 resolucion=(640, 480),
                                                 usar_picamera=self.usar_picamera)
             self.camera_handler.iniciar()
-            # esperar un frame válido antes de iniciar el bucle de reconocimiento
+            # esperar un frame válido
             for _ in range(15):
                 valid, _ = self.camera_handler.leer_frame()
                 if valid:
@@ -164,9 +179,33 @@ class App:
                 raise RuntimeError("La cámara no devolvió imágenes tras iniciar.")
         except RuntimeError as e:
             messagebox.showerror("Error de cámara", str(e))
-            self.mostrar_menu_principal()
+            self.volver_menu()
+            return False
+        # arrancar hilo según modo
+        if self.modo == 'abrir':
+            threading.Thread(target=self.procesar_abrir, daemon=True).start()
+        elif self.modo == 'registrar':
+            threading.Thread(target=self.procesar_registro, daemon=True).start()
+        return True
+
+    def abrir_locker(self):
+        # configurar modo de cámara
+        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
+        if not self.encodings_conocidos:
+            messagebox.showwarning("Sin registros", "No hay rostros registrados. Registre uno primero.")
             return
-        threading.Thread(target=self.procesar_abrir, daemon=True).start()
+        self.modo = 'abrir'
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        self.btn_right.grid_forget()
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # limpiar resultados anteriores
+        self.lbl_acceso.config(text="")
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        # iniciar cámara y reconocimiento
+        self.preparar_camera()
 
     def procesar_abrir(self):
         from recognition.utils import comparar_con_encodings
@@ -205,74 +244,45 @@ class App:
                                     self.nombres_conocidos, umbral=0.6)
             if nombre:
                 texto = f"Acceso concedido a {nombre}"
-                locker_text = f"Locker abierto: {nombre}"  # placeholder vínculo usuario-locker
+                locker_text = f"Locker abierto: {nombre}"
             else:
                 texto = "Acceso denegado"
                 locker_text = "Locker abierto: --"
-        else:
-            texto = "No se detecta rostro"
-            locker_text = "Locker abierto: --"
-        self.root.after(0, self.actualizar_resultado, texto)
-        # actualizar también la etiqueta de locker si existe
-        if hasattr(self, 'label_locker') and self.label_locker.winfo_exists():
-            self.root.after(0, lambda: self.label_locker.config(text=locker_text))
+            self.root.after(0, self.actualizar_resultado, texto)
+            # si hay texto de locker usamos la etiqueta si existe
+        # si no se detecta rostro no cambiamos nada (mantiene último mensaje)
 
     def actualizar_resultado(self, texto):
-        # la etiqueta puede haber sido destruida si el usuario cambió de pantalla
-        if hasattr(self, "label_resultado") and self.label_resultado.winfo_exists():
+        # actualiza el recuadro de acceso de la derecha
+        if hasattr(self, "lbl_acceso") and self.lbl_acceso.winfo_exists():
             try:
-                self.label_resultado.config(text=texto)
+                self.lbl_acceso.config(text=texto)
             except tk.TclError:
                 pass
 
     def registrar_locker(self):
-        self.limpiar_frame()
-        # Configurar grid para video a pantalla completa
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-        # cámara ocupa toda la ventana durante el registro
-        self.label_video = ttk.Label(self.root, background="black")
-        self.label_video.grid(row=0, column=0, sticky='nsew')
-
-        # botones y cuenta regresiva se superponen sobre el video en la parte inferior
-        bottom_frame = ttk.Frame(self.root)
+        self.modo = 'registrar'
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        self.btn_right.grid_forget()
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # crear controles de captura dentro del panel central (ya definido en mostrar_menu_principal)
+        bottom_frame = ttk.Frame(self.frame_central)
         bottom_frame.place(relx=0.5, rely=0.9, anchor='s')
-
-        self.btn_capturar = ttk.Button(bottom_frame, text="Tomar foto", command=self.iniciar_cuenta_regresiva,
+        self.btn_capturar = ttk.Button(bottom_frame, text="Tomar foto",
+                                      command=self.iniciar_cuenta_regresiva,
                                       style='Primary.TButton', state="disabled")
         self.btn_capturar.pack(side='left', padx=5)
-
         self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
         self.label_cuenta.pack(side='left', padx=5)
-
-        # usar grid en lugar de pack para mantener coherencia con el layout
-        # principal (grid) y evitar errores de mezcla de gestores de geometría.
-        btn_volver = ttk.Button(self.root, text="Volver", command=self.volver_menu,
-                               style='Secondary.TButton')
-        btn_volver.grid(row=1, column=0, pady=5, ipadx=15, ipady=6, sticky='s')
-
-        cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
-        try:
-            self.camera_handler = CameraHandler(fuente=cam_index,
-                                                resolucion=(640, 480),
-                                                usar_picamera=self.usar_picamera)
-            self.camera_handler.iniciar()
-            # asegurarnos de que la cámara entregue al menos un frame
-            for _ in range(15):
-                valid, _ = self.camera_handler.leer_frame()
-                if valid:
-                    break
-                time.sleep(0.03)
-            else:
-                raise RuntimeError("La cámara no devolvió imágenes tras iniciar.")
-        except RuntimeError as e:
-            messagebox.showerror("Error de cámara", str(e))
-            self.mostrar_menu_principal()
-            return
-        # habilitar botón de captura ahora que la cámara está activa
-        self.btn_capturar.state(['!disabled'])
-        self.capturar = False
-        threading.Thread(target=self.procesar_registro, daemon=True).start()
+        # reiniciar etiquetas info
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        self.lbl_acceso.config(text="")
+        # iniciar cámara y registrar
+        if self.preparar_camera():
+            self.btn_capturar.state(['!disabled'])
 
     def procesar_registro(self):
         import time
@@ -300,8 +310,11 @@ class App:
         if locations:
             # Guardar usando el almacenamiento centralizado
             ruta = self.face_storage.guardar(frame, nombre)
-            self.root.after(0, lambda: messagebox.showinfo("Éxito", f"Rostro registrado como {nombre}"))
-            self.root.after(0, self.volver_menu)
+            # actualizar etiqueta con fecha y hora de registro en zona México
+            hilo = time.strftime("%d/%m/%Y %H:%M:%S")
+            self.lbl_registro.config(text=hilo)
+            # volver al menú tras un segundo para que el usuario vea la hora
+            self.root.after(1000, self.volver_menu)
         else:
             self.root.after(0, lambda: messagebox.showerror("Error", "No se detectó rostro. Intente de nuevo."))
             self.root.after(0, lambda: self.btn_capturar.config(state="normal"))
