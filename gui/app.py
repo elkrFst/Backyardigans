@@ -17,6 +17,7 @@ from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
 from database.face_storage import FaceStorage
 import threading
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 class App:
     def __init__(self, root):

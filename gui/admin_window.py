@@ -4,6 +4,7 @@ from tkinter import messagebox, simpledialog
 from gui.styles import colores, fuentes
 from database.face_storage import FaceStorage
 import os
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 class AdminWindow(tk.Toplevel):
     def __init__(self, parent, face_storage, callback_actualizar):
