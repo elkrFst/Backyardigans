@@ -68,6 +68,7 @@ class App:
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
+        self.capturar = False  # Inicializa el flag de captura para registro
 
         self.mostrar_menu_principal()
 
@@ -162,23 +163,30 @@ class App:
         self.root.after(1000, self.actualizar_header)
 
     def preparar_camera(self):
-        """Inicia el handler de cámara y arranca el hilo correspondiente al modo."""
-        cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
-        try:
-            self.camera_handler = CameraHandler(fuente=cam_index,
-                                                resolucion=(640, 480),
-                                                usar_picamera=self.usar_picamera)
-            self.camera_handler.iniciar()
-            # esperar un frame válido
-            for _ in range(15):
-                valid, _ = self.camera_handler.leer_frame()
-                if valid:
-                    break
-                time.sleep(0.03)
-            else:
-                raise RuntimeError("La cámara no devolvió imágenes tras iniciar.")
-        except RuntimeError as e:
-            messagebox.showerror("Error de cámara", str(e))
+        """Intenta iniciar la cámara probando varios índices automáticamente."""
+        posibles_indices = [0, 1, 2]
+        error_msg = ""
+        for cam_index in posibles_indices:
+            try:
+                self.camera_handler = CameraHandler(fuente=cam_index,
+                                                    resolucion=(640, 480),
+                                                    usar_picamera=self.usar_picamera)
+                self.camera_handler.iniciar()
+                # esperar un frame válido
+                for _ in range(15):
+                    valid, _ = self.camera_handler.leer_frame()
+                    if valid:
+                        break
+                    time.sleep(0.03)
+                else:
+                    raise RuntimeError(f"La cámara {cam_index} no devolvió imágenes tras iniciar.")
+                print(f"[App] Cámara abierta con índice {cam_index}")
+                break
+            except RuntimeError as e:
+                error_msg += f"\nÍndice {cam_index}: {str(e)}"
+                self.camera_handler = None
+        else:
+            messagebox.showerror("Error de cámara", f"No se pudo abrir ninguna cámara.\n{error_msg}")
             self.volver_menu()
             return False
         # arrancar hilo según modo
@@ -216,12 +224,12 @@ class App:
         ultimo_resultado = "Esperando..."
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
+            print(f"[procesar_abrir] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
-                # si no se pudo leer saltamos, pero damos un pequeño descanso
+                print("[procesar_abrir] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
                 continue
             frame_count += 1
-            # mostrar siempre el video
             self.root.after(0, self.mostrar_frame, frame)
             if frame_count % 3 == 0:
                 # lanzar reconocimiento en hilo separado para no bloquear el bucle
@@ -288,7 +296,9 @@ class App:
         import time
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
+            print(f"[procesar_registro] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
+                print("[procesar_registro] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
                 continue
             # Dibujar rectángulo guía
@@ -339,8 +349,10 @@ class App:
             self.capturar = True
 
     def mostrar_frame(self, frame):
-        # Asegurarse de que la etiqueta siga existiendo antes de intentar mostrar
+        # Log para depuración
+        print("[mostrar_frame] Recibido frame para mostrar", type(frame), frame.shape if hasattr(frame, 'shape') else None)
         if not (hasattr(self, "label_video") and self.label_video.winfo_exists()):
+            print("[mostrar_frame] label_video no existe o fue destruido")
             return
         try:
             # Convertir a RGB y luego a ImageTk
@@ -355,8 +367,9 @@ class App:
             imgtk = ImageTk.PhotoImage(image=img)
             self.label_video.imgtk = imgtk
             self.label_video.configure(image=imgtk)
-        except tk.TclError:
-            # pudiera ocurrir si el widget se destruyó mientras se procesaba
+            print(f"[mostrar_frame] Frame mostrado en label_video de tamaño {w}x{h}")
+        except tk.TclError as e:
+            print(f"[mostrar_frame] TclError: {e}")
             pass
 
     def obtener_nombre_automatico(self):
