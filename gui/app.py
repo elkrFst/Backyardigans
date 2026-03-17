@@ -14,7 +14,7 @@ from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
-from database.face_storage import FaceStorage
+from database.mysql_face_storage import MySQLFaceStorage
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -64,7 +64,8 @@ class App:
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
         self.face_recognizer = FaceRecognizer()
-        self.face_storage = FaceStorage("rostros_conocidos")
+        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
+        self.face_storage = MySQLFaceStorage(user='root', password='', database='locker_scan')
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
@@ -311,21 +312,28 @@ class App:
             time.sleep(0.03)
 
     def guardar_foto(self, frame):
-        # Generar nombre automático basado en los archivos existentes
         nombre = self.obtener_nombre_automatico()
-        # Verificar rostro
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locations = face_recognition.face_locations(rgb)
         if locations:
-            # detener cámara para que no sobrescriba la captura
             if self.camera_handler:
                 self.camera_handler.stop()
-            # Guardar usando el almacenamiento centralizado
-            ruta = self.face_storage.guardar(frame, nombre)
-            # mostrar la foto capturada en el cuadro gris
+            # Convertir frame a JPEG en memoria
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                imagen_bytes = buffer.tobytes()
+                try:
+                    print(f"[guardar_foto] Intentando guardar usuario: {nombre}")
+                    usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
+                    print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
+                    self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
+                    print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
+                except Exception as e:
+                    print(f"[guardar_foto] ERROR al guardar en MySQL: {e}")
+            else:
+                print("[guardar_foto] ERROR al convertir frame a JPEG")
             self.mostrar_frame(frame)
-            # actualizar etiqueta con fecha y hora de registro
             hilo = time.strftime("%d/%m/%Y %H:%M:%S")
             self.lbl_registro.config(text=hilo)
             # esperar unos segundos antes de volver al menú
