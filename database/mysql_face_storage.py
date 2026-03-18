@@ -30,6 +30,27 @@ class MySQLFaceStorage:
         self.cursor.execute("SELECT nombre_usuario FROM usuarios")
         return [row[0] for row in self.cursor.fetchall()]
 
+    def listar_usuarios_detallados(self):
+        """Devuelve lista de diccionarios con id, nombre_usuario y rol."""
+        self.cursor.execute("SELECT id, nombre_usuario, rol FROM usuarios")
+        return [{'id': row[0], 'nombre_usuario': row[1], 'rol': row[2]} for row in self.cursor.fetchall()]
+
+    def autenticar_usuario(self, nombre_usuario, contraseña):
+        """Autentica y devuelve el usuario si coincide nombre y contraseña."""
+        sql = "SELECT id, nombre_usuario, rol FROM usuarios WHERE nombre_usuario=%s AND contraseña=%s"
+        self.cursor.execute(sql, (nombre_usuario, contraseña))
+        row = self.cursor.fetchone()
+        if row:
+            return {'id': row[0], 'nombre_usuario': row[1], 'rol': row[2]}
+        return None
+
+    def eliminar_usuario(self, nombre_usuario):
+        """Elimina un usuario por nombre de usuario. Devuelve número de filas afectadas."""
+        sql = "DELETE FROM usuarios WHERE nombre_usuario=%s"
+        self.cursor.execute(sql, (nombre_usuario,))
+        self.conn.commit()
+        return self.cursor.rowcount
+
     def cerrar(self):
         self.cursor.close()
         self.conn.close()

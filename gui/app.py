@@ -15,6 +15,7 @@ from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
 from database.mysql_face_storage import MySQLFaceStorage
+from gui.user_admin import UserAdminWindow
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -64,8 +65,10 @@ class App:
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
         self.face_recognizer = FaceRecognizer()
+        # Configuración de base de datos usada por la app (reutilizable)
+        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
         # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
-        self.face_storage = MySQLFaceStorage(user='root', password='', database='locker_scan')
+        self.face_storage = MySQLFaceStorage(**self.db_config)
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
@@ -119,6 +122,10 @@ class App:
                                   bg=colores["panel"], fg=colores["texto"])
         self.lbl_fecha.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(5,0))
         self.actualizar_header()
+        # Botón de acceso rápido a administración de usuarios
+        btn_admin = ttk.Button(self.root, text="Admin", command=self.abrir_admin,
+                       style='Small.TButton')
+        btn_admin.place(relx=1.0, rely=0.0, anchor='ne', x=-10, y=10)
 
         # marco central para imagen (placeholder gris)
         self.frame_central = tk.Frame(self.root, bg="#bbbbbb", bd=2, relief='ridge')
@@ -147,8 +154,11 @@ class App:
         self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
-        # ya no se utiliza; método mantenido solo para compatibilidad
-        pass
+        try:
+            UserAdminWindow(self.root, db_config=getattr(self, 'db_config', None))
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
 
     def actualizar_lista_encodings(self):
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
