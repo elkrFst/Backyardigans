@@ -68,6 +68,7 @@ class App:
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
+        self.capturar = False           # usado en registro
 
         self.mostrar_menu_principal()
 
@@ -280,6 +281,8 @@ class App:
         # reiniciar etiquetas info
         self.lbl_registro.config(text="Fecha y hora de registro")
         self.lbl_acceso.config(text="")
+        # asegurarse de que flag esté inicializada antes del hilo
+        self.capturar = False
         # iniciar cámara y registrar
         if self.preparar_camera():
             self.btn_capturar.state(['!disabled'])
