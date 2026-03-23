@@ -1,6 +1,7 @@
 import os
 import shutil
 import cv2
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 class FaceStorage:
     def __init__(self, carpeta="rostros_conocidos"):

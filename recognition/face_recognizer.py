@@ -1,6 +1,6 @@
 import face_recognition
 import os
-
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 class FaceRecognizer:
     def __init__(self, carpeta="rostros_conocidos"):
         self.carpeta = carpeta

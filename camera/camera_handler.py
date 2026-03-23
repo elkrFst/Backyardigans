@@ -2,6 +2,7 @@ import cv2
 import threading
 import time
 import os
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 class CameraHandler:
     def __init__(self, fuente=0, resolucion=(640, 480), usar_picamera=False):

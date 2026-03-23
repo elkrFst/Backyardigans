@@ -2,6 +2,7 @@
 import sys
 import os
 
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 # Asegurar que el directorio raíz esté en el path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
