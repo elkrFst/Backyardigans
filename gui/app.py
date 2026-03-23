@@ -14,7 +14,8 @@ from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
-from database.face_storage import FaceStorage
+from database.mysql_face_storage import MySQLFaceStorage
+from gui.user_admin import UserAdminWindow
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -77,11 +78,18 @@ class App:
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
         self.face_recognizer = FaceRecognizer()
-        self.face_storage = FaceStorage("rostros_conocidos")
+        # Configuración de base de datos usada por la app (reutilizable)
+        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
+        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
+        self.face_storage = MySQLFaceStorage(**self.db_config)
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
+<<<<<<< HEAD
         self.capturar = False           # usado en registro
+=======
+        self.capturar = False  # Inicializa el flag de captura para registro
+>>>>>>> c157d0aa87e73f82385d27c38d3b3ca814d344fe
 
         self.mostrar_menu_principal()
 
@@ -139,6 +147,10 @@ class App:
         self.lbl_fecha = ttk.Label(header_frame, text="", style='Info.TLabel')
         self.lbl_fecha.grid(row=0, column=1, sticky='e', padx=12, pady=10)
         self.actualizar_header()
+        # Botón de acceso rápido a administración de usuarios
+        btn_admin = ttk.Button(self.root, text="Admin", command=self.abrir_admin,
+                       style='Small.TButton')
+        btn_admin.place(relx=1.0, rely=0.0, anchor='ne', x=-10, y=10)
 
         # marco central para video con borde suave
         self.frame_central = ttk.Frame(self.root, style='Card.TFrame')
@@ -169,8 +181,11 @@ class App:
         self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
-        # ya no se utiliza; método mantenido solo para compatibilidad
-        pass
+        try:
+            UserAdminWindow(self.root, db_config=getattr(self, 'db_config', None))
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
 
     def actualizar_lista_encodings(self):
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
@@ -186,23 +201,30 @@ class App:
         self.root.after(1000, self.actualizar_header)
 
     def preparar_camera(self):
-        """Inicia el handler de cámara y arranca el hilo correspondiente al modo."""
-        cam_index = int(os.environ.get("CAMERA_INDEX", "0"))
-        try:
-            self.camera_handler = CameraHandler(fuente=cam_index,
-                                                resolucion=(640, 480),
-                                                usar_picamera=self.usar_picamera)
-            self.camera_handler.iniciar()
-            # esperar un frame válido
-            for _ in range(15):
-                valid, _ = self.camera_handler.leer_frame()
-                if valid:
-                    break
-                time.sleep(0.03)
-            else:
-                raise RuntimeError("La cámara no devolvió imágenes tras iniciar.")
-        except RuntimeError as e:
-            messagebox.showerror("Error de cámara", str(e))
+        """Intenta iniciar la cámara probando varios índices automáticamente."""
+        posibles_indices = [0, 1, 2]
+        error_msg = ""
+        for cam_index in posibles_indices:
+            try:
+                self.camera_handler = CameraHandler(fuente=cam_index,
+                                                    resolucion=(640, 480),
+                                                    usar_picamera=self.usar_picamera)
+                self.camera_handler.iniciar()
+                # esperar un frame válido
+                for _ in range(15):
+                    valid, _ = self.camera_handler.leer_frame()
+                    if valid:
+                        break
+                    time.sleep(0.03)
+                else:
+                    raise RuntimeError(f"La cámara {cam_index} no devolvió imágenes tras iniciar.")
+                print(f"[App] Cámara abierta con índice {cam_index}")
+                break
+            except RuntimeError as e:
+                error_msg += f"\nÍndice {cam_index}: {str(e)}"
+                self.camera_handler = None
+        else:
+            messagebox.showerror("Error de cámara", f"No se pudo abrir ninguna cámara.\n{error_msg}")
             self.volver_menu()
             return False
         # arrancar hilo según modo
@@ -240,12 +262,12 @@ class App:
         ultimo_resultado = "Esperando..."
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
+            print(f"[procesar_abrir] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
-                # si no se pudo leer saltamos, pero damos un pequeño descanso
+                print("[procesar_abrir] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
                 continue
             frame_count += 1
-            # mostrar siempre el video
             self.root.after(0, self.mostrar_frame, frame)
             if frame_count % 3 == 0:
                 # lanzar reconocimiento en hilo separado para no bloquear el bucle
@@ -314,7 +336,9 @@ class App:
         import time
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
+            print(f"[procesar_registro] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
+                print("[procesar_registro] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
                 continue
             # Dibujar rectángulo guía
@@ -327,21 +351,28 @@ class App:
             time.sleep(0.03)
 
     def guardar_foto(self, frame):
-        # Generar nombre automático basado en los archivos existentes
         nombre = self.obtener_nombre_automatico()
-        # Verificar rostro
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locations = face_recognition.face_locations(rgb)
         if locations:
-            # detener cámara para que no sobrescriba la captura
             if self.camera_handler:
                 self.camera_handler.stop()
-            # Guardar usando el almacenamiento centralizado
-            ruta = self.face_storage.guardar(frame, nombre)
-            # mostrar la foto capturada en el cuadro gris
+            # Convertir frame a JPEG en memoria
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                imagen_bytes = buffer.tobytes()
+                try:
+                    print(f"[guardar_foto] Intentando guardar usuario: {nombre}")
+                    usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
+                    print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
+                    self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
+                    print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
+                except Exception as e:
+                    print(f"[guardar_foto] ERROR al guardar en MySQL: {e}")
+            else:
+                print("[guardar_foto] ERROR al convertir frame a JPEG")
             self.mostrar_frame(frame)
-            # actualizar etiqueta con fecha y hora de registro
             hilo = time.strftime("%d/%m/%Y %H:%M:%S")
             self.lbl_registro.config(text=hilo)
             # esperar unos segundos antes de volver al menú
@@ -365,8 +396,10 @@ class App:
             self.capturar = True
 
     def mostrar_frame(self, frame):
-        # Asegurarse de que la etiqueta siga existiendo antes de intentar mostrar
+        # Log para depuración
+        print("[mostrar_frame] Recibido frame para mostrar", type(frame), frame.shape if hasattr(frame, 'shape') else None)
         if not (hasattr(self, "label_video") and self.label_video.winfo_exists()):
+            print("[mostrar_frame] label_video no existe o fue destruido")
             return
         try:
             # Convertir a RGB y luego a ImageTk
@@ -381,8 +414,9 @@ class App:
             imgtk = ImageTk.PhotoImage(image=img)
             self.label_video.imgtk = imgtk
             self.label_video.configure(image=imgtk)
-        except tk.TclError:
-            # pudiera ocurrir si el widget se destruyó mientras se procesaba
+            print(f"[mostrar_frame] Frame mostrado en label_video de tamaño {w}x{h}")
+        except tk.TclError as e:
+            print(f"[mostrar_frame] TclError: {e}")
             pass
 
     def obtener_nombre_automatico(self):
