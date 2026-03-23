@@ -14,8 +14,8 @@ from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
-from database.mysql_face_storage import MySQLFaceStorage
-from gui.user_admin import UserAdminWindow
+from database.face_storage import FaceStorage
+from gui.admin_window import AdminWindow
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -78,18 +78,13 @@ class App:
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
         self.face_recognizer = FaceRecognizer()
-        # Configuración de base de datos usada por la app (reutilizable)
-        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
-        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
-        self.face_storage = MySQLFaceStorage(**self.db_config)
+        self.face_storage = FaceStorage("rostros_conocidos")
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
-<<<<<<< HEAD
         self.capturar = False           # usado en registro
-=======
-        self.capturar = False  # Inicializa el flag de captura para registro
->>>>>>> c157d0aa87e73f82385d27c38d3b3ca814d344fe
+
+
 
         self.mostrar_menu_principal()
 
@@ -182,7 +177,7 @@ class App:
 
     def abrir_admin(self):
         try:
-            UserAdminWindow(self.root, db_config=getattr(self, 'db_config', None))
+            AdminWindow(self.root, self.face_storage, self.actualizar_lista_encodings)
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
