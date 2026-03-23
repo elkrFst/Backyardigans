@@ -24,36 +24,49 @@ class App:
         self.root.title("Sistema de Lockers - Profesional")
 
         # pantalla completa en Raspberry
-        self.root.attributes('-fullscreen', True)
-        # para desarrollo se puede salir con Esc
-        self.root.bind('<Escape>', lambda e: self.root.attributes('-fullscreen', False))
+        # Ventana clásica no full-screen para desarrollo, pero permite maximizar.
+        self.root.geometry("1024x640")
+        self.root.state('zoomed')
+        self.root.bind('<Escape>', lambda e: self.root.state('normal'))
 
-        # también fijamos fondo y bloqueamos redimensionado manual
         self.root.configure(bg=colores["fondo"])
-        self.root.resizable(False, False)
+        self.root.resizable(True, True)
         self.root.protocol("WM_DELETE_WINDOW", self.cerrar)
 
-        # fondo dinámico antes de cualquier widget
+        # fondo sencillo (el color ya lo tiene). Mantener widget superior persistente.
         self.crear_fondo()
 
-        # estilos ttk para una apariencia más moderna
+        # estilos ttk para apariencia moderna
         self.style = ttk.Style(self.root)
         try:
             self.style.theme_use('clam')
         except Exception:
             pass
+
         self.style.configure('TFrame', background=colores['fondo'])
         self.style.configure('TLabel', background=colores['fondo'], foreground=colores['texto'], font=fuentes['normal'])
-        self.style.configure('Primary.TButton', font=fuentes['boton'], padding=10,
+        self.style.configure('Header.TLabel', background=colores['panel'], foreground=colores['texto'], font=fuentes['titulo'])
+        self.style.configure('Card.TFrame', background=colores['panel_sec'], borderwidth=1, relief='flat')
+        self.style.configure('Info.TLabel', background=colores['info_bg'], foreground=colores['texto'], font=fuentes['subtitulo'])
+
+        self.style.configure('Primary.TButton', font=fuentes['boton'], padding=12,
                              background=colores['boton_principal'], foreground=colores['texto'])
-        self.style.configure('Secondary.TButton', font=fuentes['boton'], padding=10,
+        self.style.map('Primary.TButton',
+                       background=[('active', colores['boton_principal_hover']), ('disabled', '#94a3b8')],
+                       foreground=[('active', colores['texto'])])
+
+        self.style.configure('Secondary.TButton', font=fuentes['boton'], padding=12,
                              background=colores['boton_secundario'], foreground=colores['texto'])
-        self.style.configure('Small.TButton', font=fuentes['boton_pequeno'], padding=5,
+        self.style.map('Secondary.TButton',
+                       background=[('active', colores['boton_secundario_hover']), ('disabled', '#94a3b8')],
+                       foreground=[('active', colores['texto'])])
+
+        self.style.configure('Small.TButton', font=fuentes['boton_pequeno'], padding=8,
                              background=colores['boton_secundario'], foreground=colores['texto'])
 
-        # botón salir persistente
+        # botón salir persistente en un badge
         btn_salir = ttk.Button(self.root, text="Salir", command=self.cerrar, style='Secondary.TButton')
-        btn_salir.place(relx=0.0, rely=1.0, anchor='sw', x=10, y=-10)
+        btn_salir.place(relx=0.0, rely=1.0, anchor='sw', x=14, y=-12)
         btn_salir.persistent = True
 
         # ya no usamos el mini‑juego; interfaz más limpia
@@ -113,29 +126,39 @@ class App:
         self.root.grid_columnconfigure(0, weight=3)
         self.root.grid_columnconfigure(1, weight=1)
 
-        # encabezado
-        self.lbl_fecha = tk.Label(self.root, font=fuentes["titulo"],
-                                  bg=colores["panel"], fg=colores["texto"])
-        self.lbl_fecha.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(5,0))
+        # encabezado + título principal
+        header_frame = ttk.Frame(self.root, style='Card.TFrame')
+        header_frame.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10,5))
+        header_frame.grid_columnconfigure(0, weight=1)
+        header_frame.grid_columnconfigure(1, weight=0)
+
+        lbl_titulo = ttk.Label(header_frame, text="Smart Locker - Control Facial",
+                               style='Header.TLabel')
+        lbl_titulo.grid(row=0, column=0, sticky='w', padx=12, pady=10)
+
+        self.lbl_fecha = ttk.Label(header_frame, text="", style='Info.TLabel')
+        self.lbl_fecha.grid(row=0, column=1, sticky='e', padx=12, pady=10)
         self.actualizar_header()
 
-        # marco central para imagen (placeholder gris)
-        self.frame_central = tk.Frame(self.root, bg="#bbbbbb", bd=2, relief='ridge')
+        # marco central para video con borde suave
+        self.frame_central = ttk.Frame(self.root, style='Card.TFrame')
         self.frame_central.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
-        self.label_video = ttk.Label(self.frame_central, background="#dddddd")
+        self.label_video = ttk.Label(self.frame_central, background="#101828")
         self.label_video.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-        # panel de información derecha
-        frame_info = tk.Frame(self.root, bg=colores["panel"], bd=0)
+        # panel de información derecha en formato tarjeta compacta
+        frame_info = ttk.Frame(self.root, style='Card.TFrame')
         frame_info.grid(row=1, column=1, sticky='nsew', padx=10, pady=10)
-        self.lbl_registro = tk.Label(frame_info, text="Fecha y hora de registro",
-                                      bg=colores["info_bg"], fg=colores["texto"],
-                                      font=fuentes["normal"], wraplength=120, justify='center')
-        self.lbl_registro.pack(pady=5, padx=5, fill='x')
-        self.lbl_acceso = tk.Label(frame_info, text="",
-                                   bg=colores["info_bg"], fg=colores["texto"],
-                                   font=fuentes["normal"], wraplength=120, justify='center')
-        self.lbl_acceso.pack(pady=5, padx=5, fill='x')
+        frame_info.grid_rowconfigure(0, weight=0)
+        frame_info.grid_rowconfigure(1, weight=0)
+
+        self.lbl_registro = ttk.Label(frame_info, text="Fecha y hora de registro",
+                                      style='Info.TLabel', anchor='center', justify='center')
+        self.lbl_registro.grid(row=0, column=0, padx=10, pady=(15, 8), sticky='ew')
+
+        self.lbl_acceso = ttk.Label(frame_info, text="Bienvenido, por favor seleccione una acción",
+                                   style='Info.TLabel', anchor='center', justify='center')
+        self.lbl_acceso.grid(row=1, column=0, padx=10, pady=(0, 15), sticky='ew')
 
         # botones inferiores
         self.btn_left = ttk.Button(self.root, text="🔓 Abrir Locker", command=self.abrir_locker,
