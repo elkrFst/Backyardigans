@@ -8,14 +8,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import os
 import tkinter as tk
 import tkinter.ttk as ttk
-from tkinter import messagebox
+from tkinter import messagebox, simpledialog
 import cv2
 from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
 from database.mysql_face_storage import MySQLFaceStorage
-from gui.user_admin import UserAdminWindow
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -74,11 +73,19 @@ class App:
         self.modo = None                # 'abrir' o 'registrar' o None
         self.capturar = False  # Inicializa el flag de captura para registro
 
+        # Admin integrado
+        self.admin_camera_handler = None
+        self.admin_frame = None
+        self.admin_current_frame = None
+        self.admin_captured_image = None
+
         self.mostrar_menu_principal()
 
     def cerrar(self):
         if self.camera_handler:
             self.camera_handler.stop()
+        if self.admin_camera_handler:
+            self.admin_camera_handler.stop()
         self.root.destroy()
 
     def crear_fondo(self):
@@ -154,11 +161,195 @@ class App:
         self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
+        usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
+        contraseña = simpledialog.askstring("Contraseña", "Contraseña:", show='*', parent=self.root)
+        if not usuario or not contraseña:
+            messagebox.showerror("Acceso denegado", "Credenciales requeridas")
+            return
+
         try:
-            UserAdminWindow(self.root, db_config=getattr(self, 'db_config', None))
+            auth = self.face_storage.autenticar_usuario(usuario, contraseña)
         except Exception as e:
-            from tkinter import messagebox
+            messagebox.showerror("Error", f"Error al autenticar: {e}")
+            return
+
+        if not auth or auth.get('rol') not in ('administrador', 'admin'):
+            messagebox.showerror("Acceso denegado", "Credenciales inválidas o no es administrador")
+            return
+
+        try:
+            self.mostrar_admin_panel()
+        except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
+
+    def mostrar_admin_panel(self):
+        self.limpiar_frame()
+        self.root.grid_rowconfigure(0, weight=0)
+        self.root.grid_rowconfigure(1, weight=1)
+        self.root.grid_columnconfigure(0, weight=2)
+        self.root.grid_columnconfigure(1, weight=3)
+
+        lbl_heading = tk.Label(self.root, text="Administración de Usuarios", font=fuentes['titulo'], bg=colores['panel'], fg=colores['texto'])
+        lbl_heading.grid(row=0, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+
+        btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu, style='Secondary.TButton')
+        btn_back.place(relx=1.0, rely=0.0, anchor='ne', x=-10, y=10)
+
+        # Lista de usuarios
+        self.admin_listbox = tk.Listbox(self.root, font=fuentes['normal'], bg='white')
+        self.admin_listbox.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
+
+        bot_frame = ttk.Frame(self.root)
+        bot_frame.grid(row=2, column=0, sticky='ew', padx=10, pady=(0,10))
+        ttk.Button(bot_frame, text="Refrescar", command=self.admin_refrescar_lista, style='Small.TButton').pack(side='left', padx=2)
+        ttk.Button(bot_frame, text="Eliminar", command=self.admin_eliminar_usuario, style='Secondary.TButton').pack(side='left', padx=2)
+
+        # Panel de formulario
+        self.admin_frame = ttk.LabelFrame(self.root, text="Agregar usuario")
+        self.admin_frame.grid(row=1, column=1, rowspan=2, sticky='nsew', padx=10, pady=10)
+
+        tk.Label(self.admin_frame, text="Nombre:", bg=colores['fondo']).grid(row=0, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_nombre = tk.Entry(self.admin_frame, font=fuentes['normal'])
+        self.admin_entry_nombre.grid(row=0, column=1, sticky='ew', padx=10, pady=5)
+
+        tk.Label(self.admin_frame, text="Contraseña:", bg=colores['fondo']).grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_contrasena = tk.Entry(self.admin_frame, show='*', font=fuentes['normal'])
+        self.admin_entry_contrasena.grid(row=1, column=1, sticky='ew', padx=10, pady=5)
+
+        tk.Label(self.admin_frame, text="Rol:", bg=colores['fondo']).grid(row=2, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_rol = tk.Entry(self.admin_frame, font=fuentes['normal'])
+        self.admin_entry_rol.insert(0, 'usuario')
+        self.admin_entry_rol.grid(row=2, column=1, sticky='ew', padx=10, pady=5)
+
+        self.admin_frame.grid_columnconfigure(1, weight=1)
+
+        self.admin_video_label = tk.Label(self.admin_frame, text="Cámara inactiva", bg='black', fg='white')
+        self.admin_video_label.grid(row=3, column=0, columnspan=2, padx=10, pady=(8, 6), sticky='nsew')
+
+        camera_btn_frame = ttk.Frame(self.admin_frame)
+        camera_btn_frame.grid(row=4, column=0, columnspan=2, sticky='ew', padx=10, pady=5)
+        self.admin_btn_camera_on = ttk.Button(camera_btn_frame, text="Iniciar cámara", command=self.admin_iniciar_camera, style='Primary.TButton')
+        self.admin_btn_camera_on.grid(row=0, column=0, padx=2, pady=2, sticky='ew')
+        self.admin_btn_camera_off = ttk.Button(camera_btn_frame, text="Detener cámara", command=self.admin_detener_camera, style='Secondary.TButton')
+        self.admin_btn_camera_off.grid(row=0, column=1, padx=2, pady=2, sticky='ew')
+        camera_btn_frame.grid_columnconfigure(0, weight=1)
+        camera_btn_frame.grid_columnconfigure(1, weight=1)
+
+        action_btn_frame = ttk.Frame(self.admin_frame)
+        action_btn_frame.grid(row=5, column=0, columnspan=2, sticky='ew', padx=10, pady=5)
+        self.admin_btn_capture = ttk.Button(action_btn_frame, text="Capturar foto", command=self.admin_capturar_foto, style='Primary.TButton', state='disabled')
+        self.admin_btn_capture.grid(row=0, column=0, padx=2, pady=2, sticky='ew')
+        self.admin_btn_save = ttk.Button(action_btn_frame, text="Guardar usuario", command=self.admin_guardar_usuario, style='Primary.TButton')
+        self.admin_btn_save.grid(row=0, column=1, padx=2, pady=2, sticky='ew')
+        action_btn_frame.grid_columnconfigure(0, weight=1)
+        action_btn_frame.grid_columnconfigure(1, weight=1)
+
+        self.admin_refrescar_lista()
+
+    def admin_refrescar_lista(self):
+        try:
+            usuarios = self.face_storage.listar_usuarios_detallados()
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo listar usuarios: {e}")
+            usuarios = []
+        self.admin_listbox.delete(0, tk.END)
+        for u in usuarios:
+            self.admin_listbox.insert(tk.END, f"{u['nombre_usuario']}  ({u['rol']})")
+
+    def admin_eliminar_usuario(self):
+        sel = self.admin_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Seleccione", "Seleccione un usuario para eliminar")
+            return
+        texto = self.admin_listbox.get(sel[0])
+        nombre = texto.split()[0]
+        if messagebox.askyesno("Confirmar", f"¿Eliminar usuario {nombre}?"):
+            try:
+                filas = self.face_storage.eliminar_usuario(nombre)
+                if filas:
+                    messagebox.showinfo("Eliminado", f"Usuario {nombre} eliminado")
+                    local_img = os.path.join('rostros_conocidos', f"{nombre}.jpg")
+                    if os.path.exists(local_img):
+                        os.remove(local_img)
+                else:
+                    messagebox.showwarning("No encontrado", "Usuario no encontrado o ya eliminado")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo eliminar: {e}")
+            self.admin_refrescar_lista()
+
+    def admin_iniciar_camera(self):
+        if self.admin_camera_handler and self.admin_camera_handler.activo:
+            return
+        index = int(os.environ.get('CAMERA_INDEX', 0)) if os.environ.get('CAMERA_INDEX', '0').isdigit() else 0
+        usar_picamera = os.environ.get('USAR_PICAMERA', '').lower() in ('1', 'true', 'yes')
+        try:
+            self.admin_camera_handler = CameraHandler(fuente=index, resolucion=(640, 480), usar_picamera=usar_picamera)
+            self.admin_camera_handler.iniciar()
+            self.admin_btn_capture.config(state='normal')
+            threading.Thread(target=self.admin_actualizar_video, daemon=True).start()
+        except Exception as e:
+            messagebox.showerror("Error cámara", f"No se pudo iniciar la cámara: {e}")
+
+    def admin_actualizar_video(self):
+        while self.admin_camera_handler and self.admin_camera_handler.activo:
+            valid, frame = self.admin_camera_handler.leer_frame()
+            if valid and frame is not None:
+                self.admin_current_frame = frame.copy()
+                self.admin_mostrar_frame(frame)
+            time.sleep(0.03)
+
+    def admin_mostrar_frame(self, frame):
+        try:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = Image.fromarray(rgb).resize((280, 180), Image.Resampling.LANCZOS)
+            imgtk = ImageTk.PhotoImage(image=img)
+            self.admin_video_label.imgtk = imgtk
+            self.admin_video_label.configure(image=imgtk, text='')
+        except Exception:
+            pass
+
+    def admin_capturar_foto(self):
+        if self.admin_current_frame is None:
+            messagebox.showwarning("Advertencia", "No hay frame disponible para capturar")
+            return
+        self.admin_captured_image = self.admin_current_frame.copy()
+        messagebox.showinfo("Capturado", "Foto tomada exitosamente. Ahora guarde el usuario.")
+
+    def admin_guardar_usuario(self):
+        nombre = self.admin_entry_nombre.get().strip()
+        contraseña = self.admin_entry_contrasena.get().strip()
+        rol = self.admin_entry_rol.get().strip() or 'usuario'
+        if not nombre or not contraseña:
+            messagebox.showwarning("Faltan datos", "Complete nombre y contraseña")
+            return
+        if self.admin_captured_image is None:
+            messagebox.showwarning("Faltan datos", "Capture la foto del usuario antes de guardar")
+            return
+        try:
+            uid = self.face_storage.guardar_usuario(nombre, contraseña, rol)
+            ret, buffer = cv2.imencode('.jpg', self.admin_captured_image)
+            if not ret:
+                raise RuntimeError('No se pudo codificar imagen')
+            imagen_bytes = buffer.tobytes()
+            self.face_storage.guardar_imagen(uid, imagen_bytes)
+            os.makedirs('rostros_conocidos', exist_ok=True)
+            cv2.imwrite(os.path.join('rostros_conocidos', f"{nombre}.jpg"), self.admin_captured_image)
+            messagebox.showinfo("Éxito", f"Usuario {nombre} guardado con ID {uid} y foto asignada")
+            self.admin_refrescar_lista()
+            self.admin_entry_nombre.delete(0, tk.END)
+            self.admin_entry_contrasena.delete(0, tk.END)
+            self.admin_entry_rol.delete(0, tk.END)
+            self.admin_entry_rol.insert(0, 'usuario')
+            self.admin_captured_image = None
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar usuario: {e}")
+
+    def admin_detener_camera(self):
+        if self.admin_camera_handler:
+            self.admin_camera_handler.stop()
+            self.admin_camera_handler = None
+            self.admin_btn_capture.config(state='disabled')
+            self.admin_video_label.configure(image='', text='Cámara detenida', bg='black')
 
     def actualizar_lista_encodings(self):
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
@@ -411,4 +602,7 @@ class App:
     def volver_menu(self):
         if self.camera_handler:
             self.camera_handler.stop()
+        if self.admin_camera_handler:
+            self.admin_camera_handler.stop()
+            self.admin_camera_handler = None
         self.mostrar_menu_principal()
