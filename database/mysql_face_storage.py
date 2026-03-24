@@ -195,8 +195,26 @@ class MySQLFaceStorage:
         return None
 
     def eliminar_usuario(self, nombre_usuario):
-        sql = "DELETE FROM usuarios WHERE nombre_usuario=?" if self.use_sqlite else "DELETE FROM usuarios WHERE nombre_usuario=%s"
-        self.cursor.execute(sql, (nombre_usuario,))
+        # Borrar dependencias primero para evitar errores de integridad referencial
+        if self.use_sqlite:
+            self.cursor.execute("SELECT id FROM usuarios WHERE nombre_usuario=?", (nombre_usuario,))
+            row = self.cursor.fetchone()
+            if not row:
+                return 0
+            usuario_id = row[0]
+            self.cursor.execute("DELETE FROM imagenes WHERE usuario_id=?", (usuario_id,))
+            self.cursor.execute("UPDATE lockers SET usuario_id=NULL, estado='libre', asignado_en=NULL WHERE usuario_id=?", (usuario_id,))
+            self.cursor.execute("DELETE FROM usuarios WHERE nombre_usuario=?", (nombre_usuario,))
+        else:
+            self.cursor.execute("SELECT id FROM usuarios WHERE nombre_usuario=%s", (nombre_usuario,))
+            row = self.cursor.fetchone()
+            if not row:
+                return 0
+            usuario_id = row[0]
+            self.cursor.execute("DELETE FROM imagenes WHERE usuario_id=%s", (usuario_id,))
+            self.cursor.execute("UPDATE lockers SET usuario_id=NULL, estado='libre', asignado_en=NULL WHERE usuario_id=%s", (usuario_id,))
+            self.cursor.execute("DELETE FROM usuarios WHERE nombre_usuario=%s", (nombre_usuario,))
+
         self.conn.commit()
         return self.cursor.rowcount
 
