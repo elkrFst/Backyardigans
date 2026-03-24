@@ -14,12 +14,9 @@ from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
-<<<<<<< HEAD
 from database.mysql_face_storage import MySQLFaceStorage
-=======
 from database.face_storage import FaceStorage
 from gui.admin_window import AdminWindow
->>>>>>> 648f57ea0f264a389bbeecd1299088102f436832
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -213,32 +210,9 @@ class App:
         self.abrir_admin()
 
     def abrir_admin(self):
-        usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
-        contraseña = simpledialog.askstring("Contraseña", "Contraseña:", show='*', parent=self.root)
-        if not usuario or not contraseña:
-            messagebox.showerror("Acceso denegado", "Credenciales requeridas")
-            return
-
+        # Se asume que open_admin_login ya autenticó al usuario como administrador.
         try:
-<<<<<<< HEAD
             AdminWindow(self.root, self.db_storage, self.actualizar_lista_encodings)
-=======
-<<<<<<< HEAD
-            auth = self.face_storage.autenticar_usuario(usuario, contraseña)
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al autenticar: {e}")
-            return
-
-        if not auth or auth.get('rol') not in ('administrador', 'admin'):
-            messagebox.showerror("Acceso denegado", "Credenciales inválidas o no es administrador")
-            return
-
-        try:
-            self.mostrar_admin_panel()
-=======
-            AdminWindow(self.root, self.face_storage, self.actualizar_lista_encodings)
->>>>>>> 648f57ea0f264a389bbeecd1299088102f436832
->>>>>>> 61cfc4eae350694155c74db4a7bfecae3be33e75
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
 
@@ -740,11 +714,9 @@ class App:
     def volver_menu(self):
         if self.camera_handler:
             self.camera_handler.stop()
-<<<<<<< HEAD
-        self.label_placeholder.place(relx=0.5, rely=0.5, anchor='center')  # Mostrar placeholder
-=======
         if self.admin_camera_handler:
             self.admin_camera_handler.stop()
             self.admin_camera_handler = None
->>>>>>> 61cfc4eae350694155c74db4a7bfecae3be33e75
+        if hasattr(self, 'label_placeholder') and self.label_placeholder.winfo_exists():
+            self.label_placeholder.place(relx=0.5, rely=0.5, anchor='center')  # Mostrar placeholder
         self.mostrar_menu_principal()
