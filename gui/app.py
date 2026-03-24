@@ -14,12 +14,7 @@ from PIL import Image, ImageTk
 from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
-<<<<<<< HEAD
 from database.mysql_face_storage import MySQLFaceStorage
-=======
-from database.face_storage import FaceStorage
-from gui.admin_window import AdminWindow
->>>>>>> 648f57ea0f264a389bbeecd1299088102f436832
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -82,7 +77,10 @@ class App:
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
         self.face_recognizer = FaceRecognizer()
-        self.face_storage = FaceStorage("rostros_conocidos")
+        # Configuración de base de datos usada por la app (reutilizable)
+        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
+        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
+        self.face_storage = MySQLFaceStorage(**self.db_config)
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
@@ -146,6 +144,7 @@ class App:
         header_frame.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10,5))
         header_frame.grid_columnconfigure(0, weight=1)
         header_frame.grid_columnconfigure(1, weight=0)
+        header_frame.grid_columnconfigure(2, weight=0)
 
         lbl_titulo = ttk.Label(header_frame, text="Smart Locker - Control Facial",
                                style='Header.TLabel')
@@ -154,10 +153,11 @@ class App:
         self.lbl_fecha = ttk.Label(header_frame, text="", style='Info.TLabel')
         self.lbl_fecha.grid(row=0, column=1, sticky='e', padx=12, pady=10)
         self.actualizar_header()
+
         # Botón de acceso rápido a administración de usuarios
-        btn_admin = ttk.Button(self.root, text="Admin", command=self.abrir_admin,
+        btn_admin = ttk.Button(header_frame, text="Admin", command=self.abrir_admin,
                        style='Small.TButton')
-        btn_admin.place(relx=1.0, rely=0.0, anchor='ne', x=-10, y=10)
+        btn_admin.grid(row=0, column=2, sticky='e', padx=12, pady=10)
 
         # marco central para video con borde suave
         self.frame_central = ttk.Frame(self.root, style='Card.TFrame')
@@ -180,12 +180,9 @@ class App:
         self.lbl_acceso.grid(row=1, column=0, padx=10, pady=(0, 15), sticky='ew')
 
         # botones inferiores
-        self.btn_left = ttk.Button(self.root, text="🔓 Abrir Locker", command=self.abrir_locker,
+        self.btn_left = ttk.Button(self.root, text="🔓 Acceder al Locker", command=self.abrir_locker,
                                    style='Primary.TButton')
-        self.btn_right = ttk.Button(self.root, text="📝 Registrar Locker", command=self.registrar_locker,
-                                    style='Secondary.TButton')
-        self.btn_left.grid(row=2, column=0, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
-        self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
+        self.btn_left.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
         usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
@@ -195,7 +192,6 @@ class App:
             return
 
         try:
-<<<<<<< HEAD
             auth = self.face_storage.autenticar_usuario(usuario, contraseña)
         except Exception as e:
             messagebox.showerror("Error", f"Error al autenticar: {e}")
@@ -207,54 +203,121 @@ class App:
 
         try:
             self.mostrar_admin_panel()
-=======
-            AdminWindow(self.root, self.face_storage, self.actualizar_lista_encodings)
->>>>>>> 648f57ea0f264a389bbeecd1299088102f436832
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
 
     def mostrar_admin_panel(self):
         self.limpiar_frame()
-        self.root.grid_rowconfigure(0, weight=0)
-        self.root.grid_rowconfigure(1, weight=1)
-        self.root.grid_columnconfigure(0, weight=2)
-        self.root.grid_columnconfigure(1, weight=3)
 
-        lbl_heading = tk.Label(self.root, text="Administración de Usuarios", font=fuentes['titulo'], bg=colores['panel'], fg=colores['texto'])
-        lbl_heading.grid(row=0, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # Encabezado
+        header_frame = ttk.Frame(self.root, style='Card.TFrame')
+        header_frame.grid(row=0, column=0, columnspan=2, sticky='nsew', padx=10, pady=(10,5))
+        lbl_heading = ttk.Label(header_frame, text="Panel de Administración", style='Header.TLabel')
+        lbl_heading.pack(side='left', padx=12, pady=10)
+        btn_back = ttk.Button(header_frame, text="Volver", command=self.volver_menu, style='Secondary.TButton')
+        btn_back.pack(side='right', padx=12, pady=10)
 
-        btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu, style='Secondary.TButton')
-        btn_back.place(relx=1.0, rely=0.0, anchor='ne', x=-10, y=10)
+        # Notebook para pestañas
+        notebook = ttk.Notebook(self.root)
+        notebook.grid(row=1, column=0, columnspan=2, sticky='nsew', padx=10, pady=10)
+
+        # Pestaña CRUD
+        crud_frame = ttk.Frame(notebook)
+        notebook.add(crud_frame, text="Gestión de Usuarios")
 
         # Lista de usuarios
-        self.admin_listbox = tk.Listbox(self.root, font=fuentes['normal'], bg='white')
-        self.admin_listbox.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
-
-        bot_frame = ttk.Frame(self.root)
-        bot_frame.grid(row=2, column=0, sticky='ew', padx=10, pady=(0,10))
+        list_frame = ttk.Frame(crud_frame)
+        list_frame.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+        self.admin_listbox = tk.Listbox(list_frame, font=fuentes['normal'], bg='white')
+        self.admin_listbox.pack(fill='both', expand=True)
+        bot_frame = ttk.Frame(list_frame)
+        bot_frame.pack(fill='x', pady=5)
         ttk.Button(bot_frame, text="Refrescar", command=self.admin_refrescar_lista, style='Small.TButton').pack(side='left', padx=2)
         ttk.Button(bot_frame, text="Eliminar", command=self.admin_eliminar_usuario, style='Secondary.TButton').pack(side='left', padx=2)
 
-        # Panel de formulario
-        self.admin_frame = ttk.LabelFrame(self.root, text="Agregar usuario")
-        self.admin_frame.grid(row=1, column=1, rowspan=2, sticky='nsew', padx=10, pady=10)
+        # Formulario agregar usuario
+        form_frame = ttk.LabelFrame(crud_frame, text="Agregar Usuario")
+        form_frame.pack(side='right', fill='both', expand=True, padx=10, pady=10)
 
-        tk.Label(self.admin_frame, text="Nombre:", bg=colores['fondo']).grid(row=0, column=0, sticky='w', padx=10, pady=5)
-        self.admin_entry_nombre = tk.Entry(self.admin_frame, font=fuentes['normal'])
+        tk.Label(form_frame, text="Nombre de usuario:", bg=colores['fondo']).grid(row=0, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_nombre = tk.Entry(form_frame, font=fuentes['normal'])
         self.admin_entry_nombre.grid(row=0, column=1, sticky='ew', padx=10, pady=5)
 
-        tk.Label(self.admin_frame, text="Contraseña:", bg=colores['fondo']).grid(row=1, column=0, sticky='w', padx=10, pady=5)
-        self.admin_entry_contrasena = tk.Entry(self.admin_frame, show='*', font=fuentes['normal'])
+        tk.Label(form_frame, text="Contraseña:", bg=colores['fondo']).grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_contrasena = tk.Entry(form_frame, show='*', font=fuentes['normal'])
         self.admin_entry_contrasena.grid(row=1, column=1, sticky='ew', padx=10, pady=5)
 
-        tk.Label(self.admin_frame, text="Rol:", bg=colores['fondo']).grid(row=2, column=0, sticky='w', padx=10, pady=5)
-        self.admin_entry_rol = tk.Entry(self.admin_frame, font=fuentes['normal'])
+        tk.Label(form_frame, text="Rol:", bg=colores['fondo']).grid(row=2, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_rol = tk.Entry(form_frame, font=fuentes['normal'])
         self.admin_entry_rol.insert(0, 'usuario')
         self.admin_entry_rol.grid(row=2, column=1, sticky='ew', padx=10, pady=5)
 
-        self.admin_frame.grid_columnconfigure(1, weight=1)
+        form_frame.grid_columnconfigure(1, weight=1)
 
-        self.admin_video_label = tk.Label(self.admin_frame, text="Cámara inactiva", bg='black', fg='white')
+        self.admin_video_label = tk.Label(form_frame, text="Cámara inactiva", bg='black', fg='white')
+        self.admin_video_label.grid(row=3, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+
+        btn_frame = ttk.Frame(form_frame)
+        btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+        self.admin_btn_iniciar = ttk.Button(btn_frame, text="Iniciar Cámara", command=self.admin_iniciar_camera, style='Primary.TButton')
+        self.admin_btn_iniciar.pack(side='left', padx=5)
+        self.admin_btn_detener = ttk.Button(btn_frame, text="Detener Cámara", command=self.admin_detener_camera, style='Secondary.TButton')
+        self.admin_btn_detener.pack(side='left', padx=5)
+        self.admin_btn_capturar = ttk.Button(btn_frame, text="Capturar Foto", command=self.admin_capturar_foto, style='Primary.TButton', state='disabled')
+        self.admin_btn_capturar.pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="Guardar Usuario", command=self.admin_guardar_usuario, style='Primary.TButton').pack(side='left', padx=5)
+
+        # Pestaña Estadísticas
+        stats_frame = ttk.Frame(notebook)
+        notebook.add(stats_frame, text="Estadísticas")
+
+        # Gráficos
+        usuario_total = self.face_storage.contar_usuarios_registrados()
+        usuario_hoy = self.face_storage.contar_usuarios_registrados_hoy()
+        accesos = [
+            self.face_storage.contar_accesos_hoy(),
+            self.face_storage.contar_registros_por_periodo('semana'),
+            self.face_storage.contar_registros_por_periodo('mes'),
+            self.face_storage.contar_registros_por_periodo('anio')
+        ]
+
+        try:
+            import matplotlib.pyplot as plt
+            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+            fig = plt.Figure(figsize=(8, 6), dpi=100)
+            axs = fig.subplots(2, 1, sharex=False)
+
+            # Accesos por periodos
+            periodos = ['Día', 'Semana', 'Mes', 'Año']
+            axs[0].bar(periodos, accesos, color='#4f46e5')
+            axs[0].set_title('Accesos por Periodo')
+            axs[0].set_ylabel('Accesos')
+
+            # Usuarios registrados y activos hoy
+            axs[1].bar(['Total usuarios', 'Usuarios con registro hoy'], [usuario_total, usuario_hoy], color=['#059669', '#f59e0b'])
+            axs[1].set_title('Usuarios Registrados')
+            axs[1].set_ylabel('Cantidad')
+
+            fig.tight_layout(pad=2.0)
+
+            canvas = FigureCanvasTkAgg(fig, master=stats_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill='both', expand=True)
+        except ImportError:
+            ttk.Label(stats_frame, text='Instale matplotlib para ver gráficos', style='Info.TLabel').pack(padx=10, pady=10)
+            ttk.Label(stats_frame, text=f'Usuarios totales: {usuario_total}', style='Info.TLabel').pack(padx=10, pady=2)
+            ttk.Label(stats_frame, text=f'Usuarios hoy: {usuario_hoy}', style='Info.TLabel').pack(padx=10, pady=2)
+            ttk.Label(stats_frame, text=f'Accesos hoy: {accesos[0]}', style='Info.TLabel').pack(padx=10, pady=2)
+            return
+        # Información adicional
+        info_frame = ttk.Frame(stats_frame)
+        info_frame.pack(fill='x', pady=10)
+        ttk.Label(info_frame, text=f"Usuarios totales: {usuario_total}", style='Info.TLabel').pack()
+        ttk.Label(info_frame, text=f"Usuarios que ingresaron hoy: {usuario_hoy}", style='Info.TLabel').pack()
+        ttk.Label(info_frame, text=f"Accesos hoy: {accesos[0]}", style='Info.TLabel').pack()
+
+        self.admin_refrescar_lista()
         self.admin_video_label.grid(row=3, column=0, columnspan=2, padx=10, pady=(8, 6), sticky='nsew')
 
         camera_btn_frame = ttk.Frame(self.admin_frame)
@@ -316,7 +379,7 @@ class App:
         try:
             self.admin_camera_handler = CameraHandler(fuente=index, resolucion=(640, 480), usar_picamera=usar_picamera)
             self.admin_camera_handler.iniciar()
-            self.admin_btn_capture.config(state='normal')
+            self.admin_btn_capturar.config(state='normal')
             threading.Thread(target=self.admin_actualizar_video, daemon=True).start()
         except Exception as e:
             messagebox.showerror("Error cámara", f"No se pudo iniciar la cámara: {e}")
@@ -379,7 +442,7 @@ class App:
         if self.admin_camera_handler:
             self.admin_camera_handler.stop()
             self.admin_camera_handler = None
-            self.admin_btn_capture.config(state='disabled')
+            self.admin_btn_capturar.config(state='disabled')
             self.admin_video_label.configure(image='', text='Cámara detenida', bg='black')
 
     def actualizar_lista_encodings(self):
@@ -392,7 +455,11 @@ class App:
         de México obtendrá la hora correcta.
         """
         ahora = time.strftime("%d/%m/%Y %H:%M:%S")
-        self.lbl_fecha.config(text=ahora)
+        if hasattr(self, 'lbl_fecha') and self.lbl_fecha.winfo_exists():
+            try:
+                self.lbl_fecha.config(text=ahora)
+            except tk.TclError:
+                pass
         self.root.after(1000, self.actualizar_header)
 
     def preparar_camera(self):
@@ -438,7 +505,10 @@ class App:
         self.modo = 'abrir'
         # reemplazar botones inferiores por uno de vuelta
         self.btn_left.grid_forget()
-        self.btn_right.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
         self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
                                    style='Secondary.TButton')
         self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
@@ -503,9 +573,19 @@ class App:
 
     def registrar_locker(self):
         self.modo = 'registrar'
+        # pedir nombre de usuario antes de iniciar registro
+        nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
+        if not nombre_usuario:
+            messagebox.showwarning("Registro cancelado", "Debe ingresar un nombre de usuario")
+            return
+        self.nombre_registro_actual = nombre_usuario.strip()
+
         # reemplazar botones inferiores por uno de vuelta
         self.btn_left.grid_forget()
-        self.btn_right.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
         self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
                                    style='Secondary.TButton')
         self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
@@ -546,7 +626,7 @@ class App:
             time.sleep(0.03)
 
     def guardar_foto(self, frame):
-        nombre = self.obtener_nombre_automatico()
+        nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         locations = face_recognition.face_locations(rgb)
@@ -563,10 +643,18 @@ class App:
                     print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
                     self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
                     print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
+                    os.makedirs('rostros_conocidos', exist_ok=True)
+                    cv2.imwrite(os.path.join('rostros_conocidos', f"{nombre}.jpg"), frame)
                 except Exception as e:
                     print(f"[guardar_foto] ERROR al guardar en MySQL: {e}")
+                    messagebox.showerror("Error", f"No se pudo guardar usuario: {e}")
+                    self.btn_capturar.config(state="normal")
+                    return
             else:
                 print("[guardar_foto] ERROR al convertir frame a JPEG")
+                messagebox.showerror("Error", "No se pudo convertir la imagen")
+                self.btn_capturar.config(state="normal")
+                return
             self.mostrar_frame(frame)
             hilo = time.strftime("%d/%m/%Y %H:%M:%S")
             self.lbl_registro.config(text=hilo)

@@ -4,3 +4,4 @@ Pillow
 imutils
 RPi.GPIO          # Solo para Raspberry Pi (control cerradura)
 numpy
+matplotlib

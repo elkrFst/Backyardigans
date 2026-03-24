@@ -67,7 +67,7 @@ class UserAdminWindow(tk.Toplevel):
         self.frame_agregar = ttk.LabelFrame(self, text="Agregar/Nuevo usuario")
         self.frame_agregar.place(x=320, y=10, width=300, height=420)
 
-        tk.Label(self.frame_agregar, text="Nombre:", bg=colores['fondo']).place(x=10, y=10)
+        tk.Label(self.frame_agregar, text="Nombre de usuario:", bg=colores['fondo']).place(x=10, y=10)
         self.entry_nombre = tk.Entry(self.frame_agregar, font=fuentes['normal'])
         self.entry_nombre.place(x=90, y=10, width=190)
 
