@@ -44,6 +44,15 @@ class MySQLFaceStorage:
             return {'id': row[0], 'nombre_usuario': row[1], 'rol': row[2]}
         return None
 
+    def obtener_usuario_por_nombre(self, nombre_usuario):
+        """Devuelve el usuario si existe, o None en caso contrario."""
+        sql = "SELECT id, nombre_usuario, rol FROM usuarios WHERE nombre_usuario=%s"
+        self.cursor.execute(sql, (nombre_usuario,))
+        row = self.cursor.fetchone()
+        if row:
+            return {'id': row[0], 'nombre_usuario': row[1], 'rol': row[2]}
+        return None
+
     def eliminar_usuario(self, nombre_usuario):
         """Elimina un usuario por nombre de usuario. Devuelve número de filas afectadas."""
         # Primero obtener el ID del usuario

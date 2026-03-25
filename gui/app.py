@@ -81,6 +81,8 @@ class App:
         self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
         # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
         self.face_storage = MySQLFaceStorage(**self.db_config)
+        # Para compatibilidad de llamada _obtener_nombre_usuario_automatico
+        self.db_storage = self.face_storage
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
@@ -182,7 +184,10 @@ class App:
         # botones inferiores
         self.btn_left = ttk.Button(self.root, text="🔓 Acceder al Locker", command=self.abrir_locker,
                                    style='Primary.TButton')
-        self.btn_left.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
+        self.btn_right = ttk.Button(self.root, text="📝 Registrar Locker", command=self.registrar_locker,
+                                    style='Secondary.TButton')
+        self.btn_left.grid(row=2, column=0, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
+        self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
         usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
@@ -573,12 +578,10 @@ class App:
 
     def registrar_locker(self):
         self.modo = 'registrar'
-        # pedir nombre de usuario antes de iniciar registro
-        nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
-        if not nombre_usuario:
-            messagebox.showwarning("Registro cancelado", "Debe ingresar un nombre de usuario")
-            return
-        self.nombre_registro_actual = nombre_usuario.strip()
+        # generar nombre automático único de usuario
+        nombre_usuario = self._obtener_nombre_usuario_automatico()
+        self.nombre_registro_actual = nombre_usuario
+        messagebox.showinfo("Registro automático", f"Se registrará el usuario: {nombre_usuario}")
 
         # reemplazar botones inferiores por uno de vuelta
         self.btn_left.grid_forget()
@@ -589,6 +592,7 @@ class App:
         self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
                                    style='Secondary.TButton')
         self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+
         # crear controles de captura dentro del panel central (ya definido en mostrar_menu_principal)
         bottom_frame = ttk.Frame(self.frame_central)
         bottom_frame.place(relx=0.5, rely=0.9, anchor='s')
@@ -598,11 +602,13 @@ class App:
         self.btn_capturar.pack(side='left', padx=5)
         self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
         self.label_cuenta.pack(side='left', padx=5)
+
         # reiniciar etiquetas info
         self.lbl_registro.config(text="Fecha y hora de registro")
         self.lbl_acceso.config(text="")
         # asegurarse de que flag esté inicializada antes del hilo
         self.capturar = False
+
         # iniciar cámara y registrar
         if self.preparar_camera():
             self.btn_capturar.state(['!disabled'])
@@ -639,7 +645,7 @@ class App:
                 imagen_bytes = buffer.tobytes()
                 try:
                     print(f"[guardar_foto] Intentando guardar usuario: {nombre}")
-                    usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
+                    usuario_id = self.face_storage.guardar_usuario(nombre, '', 'usuario')
                     print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
                     self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
                     print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
@@ -719,6 +725,16 @@ class App:
                 if n > max_n:
                     max_n = n
         return f"usuario{max_n + 1}"
+
+    def _obtener_nombre_usuario_automatico(self):
+        base_nombre = self.obtener_nombre_automatico()
+        nombre = base_nombre
+        contador = 1
+        # evitar duplicados con la base de datos
+        while self.face_storage.obtener_usuario_por_nombre(nombre):
+            nombre = f"{base_nombre}_{contador}"
+            contador += 1
+        return nombre
 
     def volver_menu(self):
         if self.camera_handler:
