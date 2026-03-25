@@ -74,26 +74,21 @@ class App:
         self.camera_handler = None
         # permitir forzar el uso de Picamera mediante variable de entorno
         # (útil en Raspberry Pi con cámara CSI).
-        # permitir forzar el uso de Picamera mediante variable de entorno
-        # (útil en Raspberry Pi con cámara CSI).
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
-        self.face_recognizer = FaceRecognizer()
         # Configuración de base de datos usada por la app (reutilizable)
         self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
         # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
         self.face_storage = MySQLFaceStorage(**self.db_config)
-        self.encodings_conocidos = []
-        self.nombres_conocidos = []
-        # Configuración de base de datos usada por la app (reutilizable)
-        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
-        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
-        self.face_storage = MySQLFaceStorage(**self.db_config)
+        
+        # Pasar db_storage al reconocedor de caras
+        self.face_recognizer = FaceRecognizer(db_storage=self.face_storage)
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
         self.capturar = False           # usado en registro
         self.ultimo_registro_acceso = 0  # Throttle de acceso para evitar conteos inflados
+        self._procesando_cara = False   # Flag para evitar procesar múltiples frames simultáneamente
         self.stats_frame = None
         self.stats_canvas = None
 
@@ -532,7 +527,7 @@ class App:
             self.admin_video_label.configure(image='', text='Cámara detenida', bg='black')
 
     def actualizar_lista_encodings(self):
-        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
+        """Recarga los encodings desde la base de datos."""
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
 
     def actualizar_header(self):
@@ -581,18 +576,9 @@ class App:
             threading.Thread(target=self.procesar_abrir, daemon=True).start()
         elif self.modo == 'registrar':
             threading.Thread(target=self.procesar_registro, daemon=True).start()
-        # arrancar hilo según modo
-        if self.modo == 'abrir':
-            threading.Thread(target=self.procesar_abrir, daemon=True).start()
-        elif self.modo == 'registrar':
-            threading.Thread(target=self.procesar_registro, daemon=True).start()
         return True
 
     def abrir_locker(self):
-        # configurar modo de cámara
-        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
-        if not self.encodings_conocidos:
-            messagebox.showwarning("Sin registros", "No hay rostros registrados. Registre uno primero.")
         # configurar modo de cámara
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
         if not self.encodings_conocidos:
@@ -629,24 +615,22 @@ class App:
         self.preparar_camera()
 
     def procesar_abrir(self):
-        from recognition.utils import comparar_con_encodings
-        import time
-
+        def comparar_con_encodings(encoding, known_encodings, known_names, umbral=0.6):
+            return self.face_recognizer.comparar(encoding, known_encodings, known_names, umbral)
+        
+        print(f"[procesar_abrir] Iniciando. Encodings conocidos: {len(self.encodings_conocidos)}")
         frame_count = 0
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
-            print(f"[procesar_abrir] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
-            print(f"[procesar_abrir] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
-                print("[procesar_abrir] No se pudo leer frame, esperando...")
-                time.sleep(0.01)
-                print("[procesar_abrir] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
                 continue
             frame_count += 1
-            frame_count += 1
             self.root.after(0, self.mostrar_frame, frame)
-            if frame_count % 3 == 0:
+            # Procesar reconocimiento solo cada 5 frames para optimizar
+            if frame_count % 5 == 0 and not self._procesando_cara:
+                print(f"[procesar_abrir] Frame {frame_count}: iniciando reconocimiento")
+                self._procesando_cara = True
                 copia = frame.copy()
                 threading.Thread(target=self._reconocer_copia,
                                  args=(copia, comparar_con_encodings),
@@ -654,43 +638,51 @@ class App:
             time.sleep(0.03)
 
     def _reconocer_copia(self, frame, comparar_func):
-    def _reconocer_copia(self, frame, comparar_func):
         """Detecta un rostro en la copia de un frame y actualiza el resultado en la GUI."""
-        import face_recognition
-        small = cv2.resize(frame, (0,0), fx=0.25, fy=0.25)
-        rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-        locations = face_recognition.face_locations(rgb_small)
-        encodings = face_recognition.face_encodings(rgb_small, locations)
+        try:
+            import face_recognition
+            # Down-sampling equilibrado: 0.25 para detección precisa, cada 5 frames para velocidad
+            small = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+            rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+            locations = face_recognition.face_locations(rgb_small, model='cnn')  # 'cnn' es más preciso
+            encodings = face_recognition.face_encodings(rgb_small, locations)
 
-        if encodings:
-            nombre = comparar_func(encodings[0], self.encodings_conocidos,
-                                    self.nombres_conocidos, umbral=0.6)
-            if nombre:
-                texto = f"Acceso concedido a {nombre}"
-                estado = 'concedido'
+            if encodings:
+                # DEBUG: mostrar info
+                print(f"[_reconocer] Detectó {len(locations)} rostro(s), {len(self.encodings_conocidos)} conocidos")
+                nombre = comparar_func(encodings[0], self.encodings_conocidos,
+                                        self.nombres_conocidos, umbral=0.45)
+                if nombre:
+                    texto = f"Acceso concedido a {nombre}"
+                    estado = 'concedido'
+                    print(f"[_reconocer] MATCH: {nombre}")
+                else:
+                    texto = "Acceso denegado"
+                    estado = 'denegado'
+                    nombre = 'desconocido'
+                    print(f"[_reconocer] SIN MATCH - distancia mínima muy alta")
             else:
-                texto = "Acceso denegado"
-                estado = 'denegado'
-                nombre = 'desconocido'
-        else:
-            texto = "Acceso denegado - no se detecta rostro"
-            nombre = '--'
-            estado = 'sin_rostro'
+                texto = "Acceso denegado - no se detecta rostro"
+                nombre = '--'
+                estado = 'sin_rostro'
+                print(f"[_reconocer] No se detectaron rostros")
 
-        usuario_id = None
-        if nombre and nombre not in (None, '--', 'desconocido'):
-            usuario_id = self.face_storage.obtener_usuario_por_nombre(nombre)
+            usuario_id = None
+            if nombre and nombre not in (None, '--', 'desconocido'):
+                usuario_id = self.face_storage.obtener_usuario_por_nombre(nombre)
 
-        # Limitar las inserciones de accesos para que no sea un evento por cada frame
-        ahora = time.time()
-        if ahora - self.ultimo_registro_acceso >= 20.0:
-            try:
-                self.face_storage.guardar_acceso(usuario_id, None if nombre in (None, '--', 'desconocido') else nombre, estado)
-                self.ultimo_registro_acceso = ahora
-            except Exception as e:
-                print(f"[reconocer_copia] Error guardando acceso: {e}")
+            # Limitar las inserciones de accesos para que no sea un evento por cada frame
+            ahora = time.time()
+            if ahora - self.ultimo_registro_acceso >= 20.0:
+                try:
+                    self.face_storage.guardar_acceso(usuario_id, None if nombre in (None, '--', 'desconocido') else nombre, estado)
+                    self.ultimo_registro_acceso = ahora
+                except Exception as e:
+                    pass
 
-        self.root.after(0, self.actualizar_resultado, texto, nombre if nombre else '--', estado)
+            self.root.after(0, self.actualizar_resultado, texto, nombre if nombre else '--', estado)
+        finally:
+            self._procesando_cara = False
 
     def actualizar_resultado(self, texto, usuario='--', estado='--'):
         if hasattr(self, "lbl_acceso") and self.lbl_acceso.winfo_exists():
@@ -711,10 +703,6 @@ class App:
 
     def registrar_locker(self):
         self.modo = 'registrar'
-        # pedir nombre de usuario antes de iniciar registro
-        nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
-        if not nombre_usuario:
-            messagebox.showwarning("Registro cancelado", "Debe ingresar un nombre de usuario")
         # pedir nombre de usuario antes de iniciar registro
         nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
         if not nombre_usuario:
@@ -752,68 +740,24 @@ class App:
     def procesar_registro(self):
         import time
         while self.camera_handler.activo:
-        self.nombre_registro_actual = nombre_usuario.strip()
-
-        # reemplazar botones inferiores por uno de vuelta
-        self.btn_left.grid_forget()
-        try:
-            self.btn_right.grid_forget()
-        except AttributeError:
-            pass
-        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
-                                   style='Secondary.TButton')
-        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
-        # crear controles de captura dentro del panel central (ya definido en mostrar_menu_principal)
-        bottom_frame = ttk.Frame(self.frame_central)
-        bottom_frame.place(relx=0.5, rely=0.9, anchor='s')
-        self.btn_capturar = ttk.Button(bottom_frame, text="Tomar foto",
-                                      command=self.iniciar_cuenta_regresiva,
-                                      style='Primary.TButton', state="disabled")
-        self.btn_capturar.pack(side='left', padx=5)
-        self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
-        self.label_cuenta.pack(side='left', padx=5)
-        # reiniciar etiquetas info
-        self.lbl_registro.config(text="Fecha y hora de registro")
-        self.lbl_acceso.config(text="")
-        # asegurarse de que flag esté inicializada antes del hilo
-        self.capturar = False
-        # iniciar cámara y registrar
-        if self.preparar_camera():
-            self.btn_capturar.state(['!disabled'])
-
-    def procesar_registro(self):
-        import time
-        while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
-            print(f"[procesar_registro] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
-            print(f"[procesar_registro] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
-                print("[procesar_registro] No se pudo leer frame, esperando...")
-                time.sleep(0.01)
-                print("[procesar_registro] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
                 continue
-            # Dibujar rectángulo guía
             # Dibujar rectángulo guía
             h, w, _ = frame.shape
             cv2.rectangle(frame, (int(w*0.3), int(h*0.2)), (int(w*0.7), int(h*0.8)), (0,255,0), 2)
             if self.capturar:
                 self.capturar = False
                 self.guardar_foto(frame)
-            cv2.rectangle(frame, (int(w*0.3), int(h*0.2)), (int(w*0.7), int(h*0.8)), (0,255,0), 2)
-            if self.capturar:
-                self.capturar = False
-                self.guardar_foto(frame)
             self.root.after(0, self.mostrar_frame, frame)
-            time.sleep(0.03)
             time.sleep(0.03)
 
     def guardar_foto(self, frame):
         nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
-        nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        locations = face_recognition.face_locations(rgb)
+        locations = face_recognition.face_locations(rgb, model='cnn')
         if locations:
             if self.camera_handler:
                 self.camera_handler.stop()
@@ -822,52 +766,24 @@ class App:
             if ret:
                 imagen_bytes = buffer.tobytes()
                 try:
-                    print(f"[guardar_foto] Intentando guardar usuario: {nombre}")
                     usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
-                    print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
                     self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
-                    print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
                     os.makedirs('rostros_conocidos', exist_ok=True)
                     cv2.imwrite(os.path.join('rostros_conocidos', f"{nombre}.jpg"), frame)
+                    messagebox.showinfo("Éxito", f"Usuario {nombre} registrado correctamente")
                 except Exception as e:
-                    print(f"[guardar_foto] ERROR al guardar en MySQL: {e}")
                     messagebox.showerror("Error", f"No se pudo guardar usuario: {e}")
-                    self.btn_capturar.config(state="normal")
+                    if hasattr(self, 'btn_capturar'):
+                        self.btn_capturar.config(state="normal")
                     return
             else:
-                print("[guardar_foto] ERROR al convertir frame a JPEG")
                 messagebox.showerror("Error", "No se pudo convertir la imagen")
-                self.btn_capturar.config(state="normal")
-            # Convertir frame a JPEG en memoria
-            ret, buffer = cv2.imencode('.jpg', frame)
-            if ret:
-                imagen_bytes = buffer.tobytes()
-                try:
-                    print(f"[guardar_foto] Intentando guardar usuario: {nombre}")
-                    usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
-                    print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
-                    self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
-                    print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
-                    os.makedirs('rostros_conocidos', exist_ok=True)
-                    cv2.imwrite(os.path.join('rostros_conocidos', f"{nombre}.jpg"), frame)
-                except Exception as e:
-                    print(f"[guardar_foto] ERROR al guardar en MySQL: {e}")
-                    messagebox.showerror("Error", f"No se pudo guardar usuario: {e}")
+                if hasattr(self, 'btn_capturar'):
                     self.btn_capturar.config(state="normal")
-                    return
-            else:
-                print("[guardar_foto] ERROR al convertir frame a JPEG")
-                messagebox.showerror("Error", "No se pudo convertir la imagen")
-                self.btn_capturar.config(state="normal")
                 return
             self.mostrar_frame(frame)
-            hilo = time.strftime("%d/%m/%Y %H:%M:%S")
-            self.lbl_registro.config(text=hilo)
-            # esperar unos segundos antes de volver al menú
-            self.root.after(4000, self.volver_menu)
-            self.mostrar_frame(frame)
-            hilo = time.strftime("%d/%m/%Y %H:%M:%S")
-            self.lbl_registro.config(text=hilo)
+            ahora = time.strftime("%d/%m/%Y %H:%M:%S")
+            self.lbl_registro.config(text=ahora)
             # esperar unos segundos antes de volver al menú
             self.root.after(4000, self.volver_menu)
         else:
