@@ -1,6 +1,9 @@
 import mysql.connector
 from mysql.connector import Error
 from datetime import datetime, timezone, timedelta
+import mysql.connector
+from mysql.connector import Error
+from datetime import datetime, timezone, timedelta
 
 class MySQLFaceStorage:
     def __init__(self, host='localhost', user='root', password='', database='backyardigans_db'):
@@ -86,10 +89,13 @@ class MySQLFaceStorage:
 
     def listar_usuarios_detallados(self):
         """Devuelve lista de diccionarios con id, nombre_usuario y rol."""
+        """Devuelve lista de diccionarios con id, nombre_usuario y rol."""
         self.cursor.execute("SELECT id, nombre_usuario, rol FROM usuarios")
         return [{'id': row[0], 'nombre_usuario': row[1], 'rol': row[2]} for row in self.cursor.fetchall()]
 
     def autenticar_usuario(self, nombre_usuario, contraseña):
+        """Autentica y devuelve el usuario si coincide nombre y contraseña."""
+        sql = "SELECT id, nombre_usuario, rol FROM usuarios WHERE nombre_usuario=%s AND contraseña=%s"
         """Autentica y devuelve el usuario si coincide nombre y contraseña."""
         sql = "SELECT id, nombre_usuario, rol FROM usuarios WHERE nombre_usuario=%s AND contraseña=%s"
         self.cursor.execute(sql, (nombre_usuario, contraseña))
@@ -99,6 +105,19 @@ class MySQLFaceStorage:
         return None
 
     def eliminar_usuario(self, nombre_usuario):
+        """Elimina un usuario por nombre de usuario. Devuelve número de filas afectadas."""
+        # Primero obtener el ID del usuario
+        self.cursor.execute("SELECT id FROM usuarios WHERE nombre_usuario=%s", (nombre_usuario,))
+        row = self.cursor.fetchone()
+        if not row:
+            return 0
+        usuario_id = row[0]
+        
+        # Eliminar imágenes asociadas
+        self.cursor.execute("DELETE FROM imagenes WHERE usuario_id=%s", (usuario_id,))
+        
+        # Eliminar usuario
+        sql = "DELETE FROM usuarios WHERE nombre_usuario=%s"
         """Elimina un usuario por nombre de usuario. Devuelve número de filas afectadas."""
         # Primero obtener el ID del usuario
         self.cursor.execute("SELECT id FROM usuarios WHERE nombre_usuario=%s", (nombre_usuario,))

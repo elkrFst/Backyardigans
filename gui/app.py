@@ -74,9 +74,17 @@ class App:
         self.camera_handler = None
         # permitir forzar el uso de Picamera mediante variable de entorno
         # (útil en Raspberry Pi con cámara CSI).
+        # permitir forzar el uso de Picamera mediante variable de entorno
+        # (útil en Raspberry Pi con cámara CSI).
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
         self.face_recognizer = FaceRecognizer()
+        # Configuración de base de datos usada por la app (reutilizable)
+        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
+        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
+        self.face_storage = MySQLFaceStorage(**self.db_config)
+        self.encodings_conocidos = []
+        self.nombres_conocidos = []
         # Configuración de base de datos usada por la app (reutilizable)
         self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
         # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
@@ -168,6 +176,9 @@ class App:
         btn_admin = ttk.Button(header_frame, text="Admin", command=self.abrir_admin,
                        style='Small.TButton')
         btn_admin.grid(row=0, column=2, sticky='e', padx=12, pady=10)
+        btn_admin = ttk.Button(header_frame, text="Admin", command=self.abrir_admin,
+                       style='Small.TButton')
+        btn_admin.grid(row=0, column=2, sticky='e', padx=12, pady=10)
 
         # marco central para video con borde suave y tamaño fijo para acceso
         self.frame_central = ttk.Frame(self.root, style='Card.TFrame')
@@ -203,7 +214,11 @@ class App:
         self.btn_left = ttk.Button(self.root, text="🔓 Acceder al Locker", command=self.abrir_locker,
                                    style='Primary.TButton')
         self.btn_left.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
+        self.btn_left.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
+    def abrir_admin(self):
+        usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
+        contraseña = simpledialog.askstring("Contraseña", "Contraseña:", show='*', parent=self.root)
     def abrir_admin(self):
         usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
         contraseña = simpledialog.askstring("Contraseña", "Contraseña:", show='*', parent=self.root)
@@ -215,13 +230,24 @@ class App:
             auth = self.face_storage.autenticar_usuario(usuario, contraseña)
         except Exception as e:
             messagebox.showerror("Error", f"Error al autenticar: {e}")
+            messagebox.showerror("Acceso denegado", "Credenciales requeridas")
             return
+
+        try:
+            auth = self.face_storage.autenticar_usuario(usuario, contraseña)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al autenticar: {e}")
+            return
+
+        if not auth or auth.get('rol') not in ('administrador', 'admin'):
+            messagebox.showerror("Acceso denegado", "Credenciales inválidas o no es administrador")
 
         if not auth or auth.get('rol') not in ('administrador', 'admin'):
             messagebox.showerror("Acceso denegado", "Credenciales inválidas o no es administrador")
             return
 
         try:
+            self.mostrar_admin_panel()
             self.mostrar_admin_panel()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
@@ -507,6 +533,7 @@ class App:
 
     def actualizar_lista_encodings(self):
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
+        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
 
     def actualizar_header(self):
         """Actualiza la etiqueta de fecha/hora cada segundo.
@@ -554,6 +581,11 @@ class App:
             threading.Thread(target=self.procesar_abrir, daemon=True).start()
         elif self.modo == 'registrar':
             threading.Thread(target=self.procesar_registro, daemon=True).start()
+        # arrancar hilo según modo
+        if self.modo == 'abrir':
+            threading.Thread(target=self.procesar_abrir, daemon=True).start()
+        elif self.modo == 'registrar':
+            threading.Thread(target=self.procesar_registro, daemon=True).start()
         return True
 
     def abrir_locker(self):
@@ -561,8 +593,26 @@ class App:
         self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
         if not self.encodings_conocidos:
             messagebox.showwarning("Sin registros", "No hay rostros registrados. Registre uno primero.")
+        # configurar modo de cámara
+        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
+        if not self.encodings_conocidos:
+            messagebox.showwarning("Sin registros", "No hay rostros registrados. Registre uno primero.")
             return
         self.modo = 'abrir'
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # limpiar resultados anteriores
+        self.lbl_acceso.config(text="")
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        # iniciar cámara y reconocimiento
+        self.preparar_camera()
         # reemplazar botones inferiores por uno de vuelta
         self.btn_left.grid_forget()
         try:
@@ -586,10 +636,14 @@ class App:
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
             print(f"[procesar_abrir] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
+            print(f"[procesar_abrir] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
                 print("[procesar_abrir] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
+                print("[procesar_abrir] No se pudo leer frame, esperando...")
+                time.sleep(0.01)
                 continue
+            frame_count += 1
             frame_count += 1
             self.root.after(0, self.mostrar_frame, frame)
             if frame_count % 3 == 0:
@@ -599,6 +653,7 @@ class App:
                                  daemon=True).start()
             time.sleep(0.03)
 
+    def _reconocer_copia(self, frame, comparar_func):
     def _reconocer_copia(self, frame, comparar_func):
         """Detecta un rostro en la copia de un frame y actualiza el resultado en la GUI."""
         import face_recognition
@@ -660,7 +715,43 @@ class App:
         nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
         if not nombre_usuario:
             messagebox.showwarning("Registro cancelado", "Debe ingresar un nombre de usuario")
+        # pedir nombre de usuario antes de iniciar registro
+        nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
+        if not nombre_usuario:
+            messagebox.showwarning("Registro cancelado", "Debe ingresar un nombre de usuario")
             return
+        self.nombre_registro_actual = nombre_usuario.strip()
+
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # crear controles de captura dentro del panel central (ya definido en mostrar_menu_principal)
+        bottom_frame = ttk.Frame(self.frame_central)
+        bottom_frame.place(relx=0.5, rely=0.9, anchor='s')
+        self.btn_capturar = ttk.Button(bottom_frame, text="Tomar foto",
+                                      command=self.iniciar_cuenta_regresiva,
+                                      style='Primary.TButton', state="disabled")
+        self.btn_capturar.pack(side='left', padx=5)
+        self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
+        self.label_cuenta.pack(side='left', padx=5)
+        # reiniciar etiquetas info
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        self.lbl_acceso.config(text="")
+        # asegurarse de que flag esté inicializada antes del hilo
+        self.capturar = False
+        # iniciar cámara y registrar
+        if self.preparar_camera():
+            self.btn_capturar.state(['!disabled'])
+
+    def procesar_registro(self):
+        import time
+        while self.camera_handler.activo:
         self.nombre_registro_actual = nombre_usuario.strip()
 
         # reemplazar botones inferiores por uno de vuelta
@@ -695,20 +786,30 @@ class App:
         while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
             print(f"[procesar_registro] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
+            print(f"[procesar_registro] leer_frame ret={ret}, frame shape={getattr(frame, 'shape', None)}")
             if not ret:
                 print("[procesar_registro] No se pudo leer frame, esperando...")
                 time.sleep(0.01)
+                print("[procesar_registro] No se pudo leer frame, esperando...")
+                time.sleep(0.01)
                 continue
+            # Dibujar rectángulo guía
             # Dibujar rectángulo guía
             h, w, _ = frame.shape
             cv2.rectangle(frame, (int(w*0.3), int(h*0.2)), (int(w*0.7), int(h*0.8)), (0,255,0), 2)
             if self.capturar:
                 self.capturar = False
                 self.guardar_foto(frame)
+            cv2.rectangle(frame, (int(w*0.3), int(h*0.2)), (int(w*0.7), int(h*0.8)), (0,255,0), 2)
+            if self.capturar:
+                self.capturar = False
+                self.guardar_foto(frame)
             self.root.after(0, self.mostrar_frame, frame)
+            time.sleep(0.03)
             time.sleep(0.03)
 
     def guardar_foto(self, frame):
+        nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
         nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -737,13 +838,41 @@ class App:
                 print("[guardar_foto] ERROR al convertir frame a JPEG")
                 messagebox.showerror("Error", "No se pudo convertir la imagen")
                 self.btn_capturar.config(state="normal")
+            # Convertir frame a JPEG en memoria
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                imagen_bytes = buffer.tobytes()
+                try:
+                    print(f"[guardar_foto] Intentando guardar usuario: {nombre}")
+                    usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
+                    print(f"[guardar_foto] Usuario guardado con id: {usuario_id}")
+                    self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
+                    print(f"[guardar_foto] Imagen guardada para usuario id: {usuario_id}")
+                    os.makedirs('rostros_conocidos', exist_ok=True)
+                    cv2.imwrite(os.path.join('rostros_conocidos', f"{nombre}.jpg"), frame)
+                except Exception as e:
+                    print(f"[guardar_foto] ERROR al guardar en MySQL: {e}")
+                    messagebox.showerror("Error", f"No se pudo guardar usuario: {e}")
+                    self.btn_capturar.config(state="normal")
+                    return
+            else:
+                print("[guardar_foto] ERROR al convertir frame a JPEG")
+                messagebox.showerror("Error", "No se pudo convertir la imagen")
+                self.btn_capturar.config(state="normal")
                 return
             self.mostrar_frame(frame)
             hilo = time.strftime("%d/%m/%Y %H:%M:%S")
             self.lbl_registro.config(text=hilo)
             # esperar unos segundos antes de volver al menú
             self.root.after(4000, self.volver_menu)
+            self.mostrar_frame(frame)
+            hilo = time.strftime("%d/%m/%Y %H:%M:%S")
+            self.lbl_registro.config(text=hilo)
+            # esperar unos segundos antes de volver al menú
+            self.root.after(4000, self.volver_menu)
         else:
+            self.root.after(0, lambda: messagebox.showerror("Error", "No se detectó rostro. Intente de nuevo."))
+            self.root.after(0, lambda: self.btn_capturar.config(state="normal"))
             self.root.after(0, lambda: messagebox.showerror("Error", "No se detectó rostro. Intente de nuevo."))
             self.root.after(0, lambda: self.btn_capturar.config(state="normal"))
 
@@ -764,10 +893,14 @@ class App:
     def mostrar_frame(self, frame):
         # Log para depuración
         print("[mostrar_frame] Recibido frame para mostrar", type(frame), frame.shape if hasattr(frame, 'shape') else None)
+        # Log para depuración
+        print("[mostrar_frame] Recibido frame para mostrar", type(frame), frame.shape if hasattr(frame, 'shape') else None)
         if not (hasattr(self, "label_video") and self.label_video.winfo_exists()):
+            print("[mostrar_frame] label_video no existe o fue destruido")
             print("[mostrar_frame] label_video no existe o fue destruido")
             return
         try:
+            # Convertir a RGB y luego a ImageTk
             # Convertir a RGB y luego a ImageTk
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(frame_rgb)
