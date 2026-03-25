@@ -627,8 +627,8 @@ class App:
                 continue
             frame_count += 1
             self.root.after(0, self.mostrar_frame, frame)
-            # Procesar reconocimiento solo cada 5 frames para optimizar
-            if frame_count % 5 == 0 and not self._procesando_cara:
+            # Procesar reconocimiento solo cada 10 frames para optimizar
+            if frame_count % 10 == 0 and not self._procesando_cara:
                 print(f"[procesar_abrir] Frame {frame_count}: iniciando reconocimiento")
                 self._procesando_cara = True
                 copia = frame.copy()
@@ -641,10 +641,10 @@ class App:
         """Detecta un rostro en la copia de un frame y actualiza el resultado en la GUI."""
         try:
             import face_recognition
-            # Down-sampling equilibrado: 0.25 para detección precisa, cada 5 frames para velocidad
+            # Down-sampling equilibrado: 0.25 para detección precisa, cada 10 frames para velocidad
             small = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
             rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-            locations = face_recognition.face_locations(rgb_small, model='cnn')  # 'cnn' es más preciso
+            locations = face_recognition.face_locations(rgb_small, model='hog')  # Cambiar a 'hog' para mayor velocidad
             encodings = face_recognition.face_encodings(rgb_small, locations)
 
             if encodings:
@@ -757,7 +757,7 @@ class App:
         nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        locations = face_recognition.face_locations(rgb, model='cnn')
+        locations = face_recognition.face_locations(rgb, model='hog')
         if locations:
             if self.camera_handler:
                 self.camera_handler.stop()
