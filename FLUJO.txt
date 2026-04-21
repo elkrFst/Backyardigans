@@ -1,0 +1,148 @@
+"""
+FLUJO DE APLICACIÓN - Smart Locker
+===================================
+
+main.py
+   ↓
+   Inicializa: Database, FaceRecognizer
+   ↓
+   → Crea UIApp (Tkinter)
+       ↓
+       ┌─────────────────────────────────────────────┐
+       │  MENÚ PRINCIPAL                             │
+       │  [🔓 Abrir Locker] [📝 Registrar Rostro]   │
+       │              [Admin]                         │
+       └─────────────────────────────────────────────┘
+              ↓              ↓              ↓
+         (Acceso)      (Registro)     (Admin)
+              ↓              ↓              ↓
+         ┌────────┐    ┌─────────┐    ┌────────────┐
+         │ Cámara │    │ Pedir   │    │ Auth User  │
+         │ activa │    │ nombre  │    │ + Pass     │
+         │        │    │        │    │            │
+         │ Reco-  │→{ROL=admin}→│ Admin Panel │
+         │ nocer  │    │        │    │            │
+         │        │    │ Pedir  │    ├────────────┤
+         │ ¿Match?│    │ pass   │    │• Usuarios  │
+         │        │    │        │    │• Lockers   │
+         └────────┘    │ Capturar   │• Estadísticas
+              ↓         │ Foto      │
+         Acceso         │        │    └────────────┘
+         Concedido   │←──────┘
+                             ↓
+                        Guardar en BD
+                             ↓
+                        Volver Menú
+
+
+ESTRUCTURA DE DATOS
+===================
+
+config.py → Constantes globales
+   ├─ COLORES
+   ├─ FUENTES
+   ├─ DB_CONFIG
+   ├─ CAMERA_CONFIG
+   └─ FACE_CONFIG
+
+core.py → Lógica de negocios
+   ├─ Database (MySQL)
+   │  ├─ guardar_usuario()
+   │  ├─ guardar_imagen()
+   │  ├─ autenticar_usuario()
+   │  ├─ listar_usuarios()
+   │  └─ listar_lockers()
+   ├─ FaceRecognizer
+   │  ├─ cargar_todos()
+   │  ├─ asociar_rostro()
+   │  ├─ reconocer()
+   │  └─ detectar_rostros()
+   └─ Camera
+      ├─ iniciar()
+      ├─ leer_frame()
+      └─ detener()
+
+ui.py → Interfaz gráfica
+   ├─ UIApp (pantalla principal)
+   │  ├─ mostrar_menu_principal()
+   │  ├─ iniciar_acceso()
+   │  ├─ iniciar_registro()
+   │  ├─ abrir_admin()
+   │  └─ _actualizar_preview()
+   └─ AdminWindow
+      ├─ _crear_tab_usuarios()
+      ├─ _crear_tab_lockers()
+      └─ Formulario CRUD
+
+
+DIAGRAMA DE FLUJO - RECONOCIMIENTO
+==================================
+
+main.py (inicia app)
+        ↓
+UIApp.__init__
+        ↓
+mostrar_menu_principal()
+        ↓
+_iniciar_preview_camara()
+        ├─ Camera(0).iniciar()      → Thread captura frames
+        ├─ FaceRecognizer.cargar_todos()  → Lee rostros/
+        └─ _actualizar_preview()    → Loop: Frame → detectar → mostrar
+        
+iniciar_acceso()
+        ↓
+_reconocer_acceso() [loop cada 30ms]
+        ├─ camera.leer_frame()
+        ├─ FaceRecognizer.reconocer()
+        │  └─ face_recognition.face_distance(...)
+        ├─ DB.obtener_usuario_por_nombre()
+        └─ ¿Coincide?
+             └─ Sí → Acceso concedido
+             └─ No → Continuar reconociendo
+
+
+CÓMO FUNCIONA CADA MÓDULO
+==========================
+
+DATABASE (core.py → Database)
+──────────────────────────────
+- Conecta a MySQL en __init__
+- Todos los métodos usan SQL (INSERT, SELECT, DELETE)
+- Si hay error, maneja exception y retorna None/[]
+- Ej: autenticar_usuario() busca en BD y retorna dict
+
+RECONOCIMIENTO FACIAL (core.py → FaceRecognizer)
+─────────────────────────────────────────────────
+- Utiliza librería face_recognition
+- cargar_todos() → Lee *.jpg de carpeta "rostros/" → genera encodings
+- asociar_rostro() → De imagen capturada → genera encoding → guarda como JPG
+- reconocer() → compara encoding de cámara vs encodings guardados
+- detectar_rostros() → Retorna coordenadas de rostros (para dibujar rectángulo)
+
+CÁMARA (core.py → Camera)
+─────────────────────────
+- OpenCV VideoCapture en thread independiente
+- Thread: Captura frame cada 30ms en _captura_loop()
+- leer_frame() es thread-safe (usa lock)
+- UI es responsable de mostrar el frame en Tkinter
+
+INTERFAZ (ui.py)
+────────────────
+- UIApp es la ventana principal
+- Tiene 2 botones: Abrir locker / Registrar rostro
+- Admin panel en ventana emergente (Toplevel)
+- Cada frame (~30ms) llama _actualizar_preview() que:
+  1. Lee frame de cámara
+  2. Lo muestra en Label (PhotoImage)
+  3. Detecta rostros y dibuja rectángulos
+- Botones conectan a métodos que cambian self.modo
+
+
+REQUISITOS
+==========
+✅ opencv-python         (Cámara + visión)
+✅ face-recognition      (Reconocimiento facial)
+✅ Pillow                (Conversión de imágenes)
+✅ mysql-connector-python (Base de datos)
+✅ numpy, imutils, matplotlib (Soporte)
+"""

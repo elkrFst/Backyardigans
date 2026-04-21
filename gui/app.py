@@ -15,8 +15,6 @@ from gui.styles import colores, fuentes
 from camera.camera_handler import CameraHandler
 from recognition.face_recognizer import FaceRecognizer
 from database.mysql_face_storage import MySQLFaceStorage
-from database.face_storage import FaceStorage
-from gui.admin_window import AdminWindow
 import threading
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
@@ -74,22 +72,28 @@ class App:
         # ya no usamos el mini‑juego; interfaz más limpia
 
         self.camera_handler = None
+        # permitir forzar el uso de Picamera mediante variable de entorno
+        # (útil en Raspberry Pi con cámara CSI).
         self.usar_picamera = os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 
-        self.face_recognizer = FaceRecognizer()
-        self.face_storage = FaceStorage("rostros_conocidos")
-        from database.mysql_face_storage import MySQLFaceStorage
-        self.db_storage = MySQLFaceStorage(host='localhost', user='root', password='', database='locker_scan')
-
-        # garantizar admin inicial
-        admin = self.db_storage.obtener_usuario_por_nombre('admin')
-        if not admin:
-            self.db_storage.guardar_usuario('admin', 'admin123', 'administrador')
-
-        self.reconociendo = False
+        # Configuración de base de datos usada por la app (reutilizable)
+        self.db_config = {'user': 'root', 'password': '', 'database': 'locker_scan'}
+        # Cambia FaceStorage por MySQLFaceStorage para guardar en MySQL
+        self.face_storage = MySQLFaceStorage(**self.db_config)
+        
+        # Pasar db_storage al reconocedor de caras
+        self.face_recognizer = FaceRecognizer(db_storage=self.face_storage)
+        self.encodings_conocidos = []
+        self.nombres_conocidos = []
         self.modo = None                # 'abrir' o 'registrar' o None
         self.capturar = False           # usado en registro
-        self.locker_abierto = None
+        self.ultimo_registro_acceso = 0  # Throttle de acceso para evitar conteos inflados
+        self._procesando_cara = False   # Flag para evitar procesar múltiples frames simultáneamente
+        self.stats_frame = None
+        self.stats_canvas = None
+
+
+
 
         # Admin integrado
         self.admin_camera_handler = None
@@ -123,6 +127,11 @@ class App:
             if getattr(widget, 'persistent', False):
                 continue
             widget.destroy()
+        # Limpiar referencias a widgets que pueden quedar colgando de pantallas previas
+        self.stats_canvas = None
+        self.stats_frame = None
+        self.admin_video_label = None
+        self.label_video = None
 
     def mostrar_menu_principal(self):
         """Diseño de pantalla principal inspirado en la captura de 800×480.
@@ -139,8 +148,9 @@ class App:
         self.root.grid_rowconfigure(0, weight=0)
         self.root.grid_rowconfigure(1, weight=1)
         self.root.grid_rowconfigure(2, weight=0)
-        self.root.grid_columnconfigure(0, weight=3)
-        self.root.grid_columnconfigure(1, weight=1)
+        # darle más espacio al panel de cámara (cuadro más grande)
+        self.root.grid_columnconfigure(0, weight=5)
+        self.root.grid_columnconfigure(1, weight=2)
 
         # encabezado + título principal
         header_frame = ttk.Frame(self.root, style='Card.TFrame')
@@ -158,19 +168,22 @@ class App:
         self.actualizar_header()
 
         # Botón de acceso rápido a administración de usuarios
-        btn_admin = ttk.Button(header_frame, text="Admin", command=self.open_admin_login, style='Small.TButton')
-        btn_admin.grid(row=0, column=2, padx=8, pady=8, sticky='ne')
+        btn_admin = ttk.Button(header_frame, text="Admin", command=self.abrir_admin,
+                       style='Small.TButton')
+        btn_admin.grid(row=0, column=2, sticky='e', padx=12, pady=10)
+        btn_admin = ttk.Button(header_frame, text="Admin", command=self.abrir_admin,
+                       style='Small.TButton')
+        btn_admin.grid(row=0, column=2, sticky='e', padx=12, pady=10)
 
-        # marco central para video con borde suave
+        # marco central para video con borde suave y tamaño fijo para acceso
         self.frame_central = ttk.Frame(self.root, style='Card.TFrame')
         self.frame_central.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
-        self.label_video = ttk.Label(self.frame_central, background="#101828")
-        self.label_video.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.frame_central.grid_propagate(False)
+        self.frame_central.config(width=920, height=540)
 
-        # Placeholder cuando no hay video
-        self.label_placeholder = ttk.Label(self.frame_central, text="Smart Locker\nListo para usar",
-                                           style='Header.TLabel', anchor='center', justify='center')
-        self.label_placeholder.place(relx=0.5, rely=0.5, anchor='center')
+        self.label_video = ttk.Label(self.frame_central, background="#101828", foreground="#f8fafc",
+                                     text="Cámara inactiva", anchor='center', font=fuentes['subtitulo'])
+        self.label_video.place(relx=0, rely=0, relwidth=1, relheight=1)
 
         # panel de información derecha en formato tarjeta compacta
         frame_info = ttk.Frame(self.root, style='Card.TFrame')
@@ -186,34 +199,51 @@ class App:
                                    style='Info.TLabel', anchor='center', justify='center')
         self.lbl_acceso.grid(row=1, column=0, padx=10, pady=(0, 8), sticky='ew')
 
-        self.lbl_lockers = ttk.Label(frame_info, text="Lockers disponibles: 4", style='Info.TLabel', anchor='center', justify='center')
-        self.lbl_lockers.grid(row=1, column=0, padx=10, pady=(0, 12), sticky='ew')
+        self.lbl_usuario = ttk.Label(frame_info, text="Usuario: --", style='Info.TLabel', anchor='center', justify='center')
+        self.lbl_usuario.grid(row=2, column=0, padx=10, pady=(0, 8), sticky='ew')
 
-        self.actualizar_estado_lockers()
+        self.lbl_estado = ttk.Label(frame_info, text="Estado: --", style='Info.TLabel', anchor='center', justify='center')
+        self.lbl_estado.grid(row=3, column=0, padx=10, pady=(0, 15), sticky='ew')
 
         # botones inferiores
         self.btn_left = ttk.Button(self.root, text="🔓 Acceder al Locker", command=self.abrir_locker,
                                    style='Primary.TButton')
-        self.btn_right = ttk.Button(self.root, text="📝 Registrar Locker", command=self.iniciar_registro,
-                                    style='Secondary.TButton')
-        self.btn_left.grid(row=2, column=0, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
-        self.btn_right.grid(row=2, column=1, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
-
-    def open_admin_login(self):
-        usuario = simpledialog.askstring("Admin", "Usuario administrador:", parent=self.root)
-        contraseña = simpledialog.askstring("Admin", "Contraseña:", show='*', parent=self.root)
-        if not usuario or not contraseña:
-            return
-        user = self.db_storage.autenticar_usuario(usuario, contraseña)
-        if not user or user.get('rol') != 'administrador':
-            messagebox.showerror("Acceso denegado", "Credenciales inválidas o no autorizado")
-            return
-        self.abrir_admin()
+        self.btn_left.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
+        self.btn_left.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10, ipadx=10, ipady=8)
 
     def abrir_admin(self):
-        # Se asume que open_admin_login ya autenticó al usuario como administrador.
+        usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
+        contraseña = simpledialog.askstring("Contraseña", "Contraseña:", show='*', parent=self.root)
+    def abrir_admin(self):
+        usuario = simpledialog.askstring("Usuario", "Usuario administrador:", parent=self.root)
+        contraseña = simpledialog.askstring("Contraseña", "Contraseña:", show='*', parent=self.root)
+        if not usuario or not contraseña:
+            messagebox.showerror("Acceso denegado", "Credenciales requeridas")
+            return
+
         try:
-            AdminWindow(self.root, self.db_storage, self.actualizar_lista_encodings)
+            auth = self.face_storage.autenticar_usuario(usuario, contraseña)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al autenticar: {e}")
+            messagebox.showerror("Acceso denegado", "Credenciales requeridas")
+            return
+
+        try:
+            auth = self.face_storage.autenticar_usuario(usuario, contraseña)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al autenticar: {e}")
+            return
+
+        if not auth or auth.get('rol') not in ('administrador', 'admin'):
+            messagebox.showerror("Acceso denegado", "Credenciales inválidas o no es administrador")
+
+        if not auth or auth.get('rol') not in ('administrador', 'admin'):
+            messagebox.showerror("Acceso denegado", "Credenciales inválidas o no es administrador")
+            return
+
+        try:
+            self.mostrar_admin_panel()
+            self.mostrar_admin_panel()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo abrir administración: {e}")
 
@@ -250,23 +280,28 @@ class App:
         form_frame = ttk.LabelFrame(crud_frame, text="Agregar Usuario")
         form_frame.pack(side='right', fill='both', expand=True, padx=10, pady=10)
 
-        tk.Label(form_frame, text="Nombre de usuario:", bg=colores['fondo']).grid(row=0, column=0, sticky='w', padx=10, pady=5)
-        self.admin_entry_nombre = tk.Entry(form_frame, font=fuentes['normal'])
+        ttk.Label(form_frame, text="Nombre de usuario:", style='Info.TLabel').grid(row=0, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_nombre = ttk.Entry(form_frame, font=fuentes['normal'])
         self.admin_entry_nombre.grid(row=0, column=1, sticky='ew', padx=10, pady=5)
 
-        tk.Label(form_frame, text="Contraseña:", bg=colores['fondo']).grid(row=1, column=0, sticky='w', padx=10, pady=5)
-        self.admin_entry_contrasena = tk.Entry(form_frame, show='*', font=fuentes['normal'])
+        ttk.Label(form_frame, text="Contraseña:", style='Info.TLabel').grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_contrasena = ttk.Entry(form_frame, show='*', font=fuentes['normal'])
         self.admin_entry_contrasena.grid(row=1, column=1, sticky='ew', padx=10, pady=5)
 
-        tk.Label(form_frame, text="Rol:", bg=colores['fondo']).grid(row=2, column=0, sticky='w', padx=10, pady=5)
-        self.admin_entry_rol = tk.Entry(form_frame, font=fuentes['normal'])
-        self.admin_entry_rol.insert(0, 'usuario')
+        ttk.Label(form_frame, text="Rol:", style='Info.TLabel').grid(row=2, column=0, sticky='w', padx=10, pady=5)
+        self.admin_entry_rol = ttk.Combobox(form_frame, values=['usuario', 'administrador'], state='readonly', font=fuentes['normal'])
+        self.admin_entry_rol.set('usuario')
         self.admin_entry_rol.grid(row=2, column=1, sticky='ew', padx=10, pady=5)
 
         form_frame.grid_columnconfigure(1, weight=1)
 
-        self.admin_video_label = tk.Label(form_frame, text="Cámara inactiva", bg='black', fg='white')
-        self.admin_video_label.grid(row=3, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        self.admin_video_label = tk.Label(form_frame, text="Cámara inactiva", bg='black', fg='white', font=fuentes['subtitulo'])
+        self.admin_video_label.grid(row=3, column=0, columnspan=2, sticky='nsew', padx=10, pady=10)
+
+        # Hacer que el cuadro de admin use todo el espacio disponible y controle el tamaño fijo
+        form_frame.grid_rowconfigure(3, weight=1)
+        form_frame.grid_columnconfigure(0, weight=1)
+        form_frame.grid_columnconfigure(1, weight=1)
 
         btn_frame = ttk.Frame(form_frame)
         btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
@@ -281,75 +316,104 @@ class App:
         # Pestaña Estadísticas
         stats_frame = ttk.Frame(notebook)
         notebook.add(stats_frame, text="Estadísticas")
+        self.stats_frame = stats_frame
+
+        # Botón de refrescar estadísticas
+        refresh_frame = ttk.Frame(stats_frame)
+        refresh_frame.pack(fill='x', pady=5)
+        ttk.Button(refresh_frame, text="Refrescar Estadísticas", command=self.admin_refrescar_estadisticas, style='Secondary.TButton').pack(side='right', padx=10)
 
         # Gráficos
-        usuario_total = self.face_storage.contar_usuarios_registrados()
-        usuario_hoy = self.face_storage.contar_usuarios_registrados_hoy()
-        accesos = [
-            self.face_storage.contar_accesos_hoy(),
-            self.face_storage.contar_registros_por_periodo('semana'),
-            self.face_storage.contar_registros_por_periodo('mes'),
-            self.face_storage.contar_registros_por_periodo('anio')
-        ]
+        self.stats_canvas = None
+        self.admin_refrescar_estadisticas()
 
+    def admin_refrescar_estadisticas(self):
         try:
-            import matplotlib.pyplot as plt
-            from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+            # Validar que el frame de estadísticas todavía existe
+            if not hasattr(self, 'stats_frame') or self.stats_frame is None or not self.stats_frame.winfo_exists():
+                print('[admin_refrescar_estadisticas] stats_frame no existe, abortando')
+                self.stats_canvas = None
+                return
 
-            fig = plt.Figure(figsize=(8, 6), dpi=100)
-            axs = fig.subplots(2, 1, sharex=False)
+            # Limpiar gráficos anteriores con manejo robusto
+            if hasattr(self, 'stats_canvas') and self.stats_canvas:
+                try:
+                    self.stats_canvas.get_tk_widget().destroy()
+                except (tk.TclError, AttributeError, RuntimeError) as e:
+                    print(f'[stats] Error limpiando canvas previo: {e}')
+                finally:
+                    self.stats_canvas = None
 
-            # Accesos por periodos
-            periodos = ['Día', 'Semana', 'Mes', 'Año']
-            axs[0].bar(periodos, accesos, color='#4f46e5')
-            axs[0].set_title('Accesos por Periodo')
-            axs[0].set_ylabel('Accesos')
+            # Obtener datos actualizados
+            usuario_total = self.face_storage.contar_usuarios_registrados()
+            usuario_hoy = self.face_storage.contar_usuarios_registrados_hoy()
+            accesos = [
+                self.face_storage.contar_accesos_hoy(),
+                self.face_storage.contar_accesos_por_periodo('semana'),
+                self.face_storage.contar_accesos_por_periodo('mes'),
+                self.face_storage.contar_accesos_por_periodo('anio')
+            ]
 
-            # Usuarios registrados y activos hoy
-            axs[1].bar(['Total usuarios', 'Usuarios con registro hoy'], [usuario_total, usuario_hoy], color=['#059669', '#f59e0b'])
-            axs[1].set_title('Usuarios Registrados')
-            axs[1].set_ylabel('Cantidad')
+            try:
+                import matplotlib.pyplot as plt
+                from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-            fig.tight_layout(pad=2.0)
+                fig = plt.Figure(figsize=(8, 6), dpi=100)
+                axs = fig.subplots(2, 1, sharex=False)
 
-            canvas = FigureCanvasTkAgg(fig, master=stats_frame)
-            canvas.draw()
-            canvas.get_tk_widget().pack(fill='both', expand=True)
-        except ImportError:
-            ttk.Label(stats_frame, text='Instale matplotlib para ver gráficos', style='Info.TLabel').pack(padx=10, pady=10)
-            ttk.Label(stats_frame, text=f'Usuarios totales: {usuario_total}', style='Info.TLabel').pack(padx=10, pady=2)
-            ttk.Label(stats_frame, text=f'Usuarios hoy: {usuario_hoy}', style='Info.TLabel').pack(padx=10, pady=2)
-            ttk.Label(stats_frame, text=f'Accesos hoy: {accesos[0]}', style='Info.TLabel').pack(padx=10, pady=2)
-            return
-        # Información adicional
-        info_frame = ttk.Frame(stats_frame)
-        info_frame.pack(fill='x', pady=10)
-        ttk.Label(info_frame, text=f"Usuarios totales: {usuario_total}", style='Info.TLabel').pack()
-        ttk.Label(info_frame, text=f"Usuarios que ingresaron hoy: {usuario_hoy}", style='Info.TLabel').pack()
-        ttk.Label(info_frame, text=f"Accesos hoy: {accesos[0]}", style='Info.TLabel').pack()
+                # Accesos por periodos con etiquetas numéricas
+                periodos = ['Día', 'Semana', 'Mes', 'Año']
+                bars = axs[0].bar(periodos, accesos, color='#4f46e5')
+                axs[0].set_title('Accesos por Periodo')
+                axs[0].set_ylabel('Accesos')
+                axs[0].set_ylim(0, max(accesos) * 1.25 if max(accesos) > 0 else 5)
+                for bar, valor in zip(bars, accesos):
+                    axs[0].text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.1, str(valor),
+                                ha='center', va='bottom', fontweight='bold')
 
-        self.admin_refrescar_lista()
-        self.admin_video_label.grid(row=3, column=0, columnspan=2, padx=10, pady=(8, 6), sticky='nsew')
+                # Accesos totales y usuarios activos hoy
+                axs[1].bar(['Total usuarios', 'Usuarios registro hoy', 'Accesos hoy'], [usuario_total, usuario_hoy, accesos[0]],
+                           color=['#059669', '#f59e0b', '#3b82f6'])
+                axs[1].set_title('Resumen de Usuarios y Accesos')
+                axs[1].set_ylabel('Cantidad')
+                for i, v in enumerate([usuario_total, usuario_hoy, accesos[0]]):
+                    axs[1].text(i, v + 0.1, str(v), ha='center', va='bottom', fontweight='bold')
 
-        camera_btn_frame = ttk.Frame(self.admin_frame)
-        camera_btn_frame.grid(row=4, column=0, columnspan=2, sticky='ew', padx=10, pady=5)
-        self.admin_btn_camera_on = ttk.Button(camera_btn_frame, text="Iniciar cámara", command=self.admin_iniciar_camera, style='Primary.TButton')
-        self.admin_btn_camera_on.grid(row=0, column=0, padx=2, pady=2, sticky='ew')
-        self.admin_btn_camera_off = ttk.Button(camera_btn_frame, text="Detener cámara", command=self.admin_detener_camera, style='Secondary.TButton')
-        self.admin_btn_camera_off.grid(row=0, column=1, padx=2, pady=2, sticky='ew')
-        camera_btn_frame.grid_columnconfigure(0, weight=1)
-        camera_btn_frame.grid_columnconfigure(1, weight=1)
+                fig.tight_layout(pad=2.0)
 
-        action_btn_frame = ttk.Frame(self.admin_frame)
-        action_btn_frame.grid(row=5, column=0, columnspan=2, sticky='ew', padx=10, pady=5)
-        self.admin_btn_capture = ttk.Button(action_btn_frame, text="Capturar foto", command=self.admin_capturar_foto, style='Primary.TButton', state='disabled')
-        self.admin_btn_capture.grid(row=0, column=0, padx=2, pady=2, sticky='ew')
-        self.admin_btn_save = ttk.Button(action_btn_frame, text="Guardar usuario", command=self.admin_guardar_usuario, style='Primary.TButton')
-        self.admin_btn_save.grid(row=0, column=1, padx=2, pady=2, sticky='ew')
-        action_btn_frame.grid_columnconfigure(0, weight=1)
-        action_btn_frame.grid_columnconfigure(1, weight=1)
+                # Verificar frame nuevamente antes de crear canvas
+                if not self.stats_frame.winfo_exists():
+                    print('[stats] stats_frame desapareció antes de crear canvas')
+                    return
 
-        self.admin_refrescar_lista()
+                self.stats_canvas = FigureCanvasTkAgg(fig, master=self.stats_frame)
+                self.stats_canvas.draw()
+                self.stats_canvas.get_tk_widget().pack(fill='both', expand=True)
+                
+            except ImportError:
+                ttk.Label(self.stats_frame, text='Instale matplotlib para ver gráficos', style='Info.TLabel').pack(padx=10, pady=10)
+                ttk.Label(self.stats_frame, text=f'Usuarios totales: {usuario_total}', style='Info.TLabel').pack(padx=10, pady=2)
+                ttk.Label(self.stats_frame, text=f'Usuarios hoy: {usuario_hoy}', style='Info.TLabel').pack(padx=10, pady=2)
+                ttk.Label(self.stats_frame, text=f'Accesos hoy: {accesos[0]}', style='Info.TLabel').pack(padx=10, pady=2)
+                return
+            
+            # Información adicional
+            if not hasattr(self, 'info_frame') or self.info_frame is None:
+                self.info_frame = ttk.Frame(self.stats_frame)
+                self.info_frame.pack(fill='x', pady=10)
+            else:
+                for widget in self.info_frame.winfo_children():
+                    widget.destroy()
+            
+            ttk.Label(self.info_frame, text=f"Usuarios totales: {usuario_total}", style='Info.TLabel').pack()
+            ttk.Label(self.info_frame, text=f"Usuarios que ingresaron hoy: {usuario_hoy}", style='Info.TLabel').pack()
+            ttk.Label(self.info_frame, text=f"Accesos hoy: {accesos[0]}", style='Info.TLabel').pack()
+
+        except Exception as e:
+            print(f'[admin_refrescar_estadisticas] Error general: {e}')
+            import traceback
+            traceback.print_exc()
+
 
     def admin_refrescar_lista(self):
         try:
@@ -406,7 +470,10 @@ class App:
     def admin_mostrar_frame(self, frame):
         try:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(rgb).resize((280, 180), Image.Resampling.LANCZOS)
+            # tomar el tamaño actual del label para que llene el cuadro
+            ancho = self.admin_video_label.winfo_width() or 640
+            alto = self.admin_video_label.winfo_height() or 480
+            img = Image.fromarray(rgb).resize((ancho, alto), Image.Resampling.LANCZOS)
             imgtk = ImageTk.PhotoImage(image=img)
             self.admin_video_label.imgtk = imgtk
             self.admin_video_label.configure(image=imgtk, text='')
@@ -426,6 +493,9 @@ class App:
         rol = self.admin_entry_rol.get().strip() or 'usuario'
         if not nombre or not contraseña:
             messagebox.showwarning("Faltan datos", "Complete nombre y contraseña")
+            return
+        if rol not in ('usuario', 'administrador'):
+            messagebox.showwarning("Rol inválido", "Seleccione rol usuario o administrador")
             return
         if self.admin_captured_image is None:
             messagebox.showwarning("Faltan datos", "Capture la foto del usuario antes de guardar")
@@ -457,16 +527,8 @@ class App:
             self.admin_video_label.configure(image='', text='Cámara detenida', bg='black')
 
     def actualizar_lista_encodings(self):
-        self.face_recognizer.recargar()
-        if hasattr(self, 'lbl_acceso') and self.lbl_acceso.winfo_exists():
-            self.lbl_acceso.config(text=f"Rostros disponibles: {len(self.face_recognizer.nombres_conocidos)}")
-        self.actualizar_estado_lockers()
-
-    def actualizar_estado_lockers(self):
-        if hasattr(self, 'lbl_lockers') and self.lbl_lockers.winfo_exists():
-            lockers = self.db_storage.listar_lockers()
-            ocupados = sum(1 for l in lockers if l['estado'] == 'ocupado')
-            self.lbl_lockers.config(text=f"Lockers ocupados: {ocupados} / 4")
+        """Recarga los encodings desde la base de datos."""
+        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
 
     def actualizar_header(self):
         """Actualiza la etiqueta de fecha/hora cada segundo.
@@ -501,7 +563,6 @@ class App:
                 else:
                     raise RuntimeError(f"La cámara {cam_index} no devolvió imágenes tras iniciar.")
                 print(f"[App] Cámara abierta con índice {cam_index}")
-                self.label_placeholder.place_forget()  # Ocultar placeholder cuando hay video
                 break
             except RuntimeError as e:
                 error_msg += f"\nÍndice {cam_index}: {str(e)}"
@@ -510,234 +571,226 @@ class App:
             messagebox.showerror("Error de cámara", f"No se pudo abrir ninguna cámara.\n{error_msg}")
             self.volver_menu()
             return False
-        # in this version, la lógica de modo se gestiona en los métodos de acción, no aquí
+        # arrancar hilo según modo
+        if self.modo == 'abrir':
+            threading.Thread(target=self.procesar_abrir, daemon=True).start()
+        elif self.modo == 'registrar':
+            threading.Thread(target=self.procesar_registro, daemon=True).start()
         return True
 
     def abrir_locker(self):
-        self.face_recognizer.recargar()
-        if not self.face_recognizer.tiene_registros():
-            messagebox.showwarning("Sin registros", "Aún no hay rostros guardados. Por favor registre un locker.")
+        # configurar modo de cámara
+        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
+        if not self.encodings_conocidos:
+            messagebox.showwarning("Sin registros", "No hay rostros registrados. Registre uno primero.")
             return
-
         self.modo = 'abrir'
-        self.lbl_acceso.config(text="Modo: Abrir locker (7 segundos de reconocimiento)")
-        self.lbl_registro.config(text="Progreso: iniciando cámara...")
-        self.btn_left.state(['disabled'])
-        self.btn_right.state(['disabled'])
-
-        if not self.preparar_camera():
-            self.btn_left.state(['!disabled'])
-            self.btn_right.state(['!disabled'])
-            return
-
-        self.locker_abierto = None
-        threading.Thread(target=self.procesar_abrir_temporizado, daemon=True).start()
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # limpiar resultados anteriores
+        self.lbl_acceso.config(text="")
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        # iniciar cámara y reconocimiento
+        self.preparar_camera()
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # limpiar resultados anteriores
+        self.lbl_acceso.config(text="")
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        # iniciar cámara y reconocimiento
+        self.preparar_camera()
 
     def procesar_abrir(self):
-        """Compatibilidad antigua: antes se llamaba procesar_abrir desde preparar_camera."""
-        self.procesar_abrir_temporizado()
-
-    def procesar_registro(self):
-        """Compatibilidad antigua: antes se llamaba procesar_registro desde preparar_camera."""
-        self.procesar_registro_temporizado()
-
-    def procesar_abrir_temporizado(self):
-        inicio = time.time()
-        while self.camera_handler and self.camera_handler.activo and time.time() - inicio < 7:
+        def comparar_con_encodings(encoding, known_encodings, known_names, umbral=0.6):
+            return self.face_recognizer.comparar(encoding, known_encodings, known_names, umbral)
+        
+        print(f"[procesar_abrir] Iniciando. Encodings conocidos: {len(self.encodings_conocidos)}")
+        frame_count = 0
+        while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
             if not ret:
-                time.sleep(0.02)
+                time.sleep(0.01)
                 continue
+            frame_count += 1
             self.root.after(0, self.mostrar_frame, frame)
-            if not self.reconociendo:
-                self.reconociendo = True
+            # Procesar reconocimiento solo cada 10 frames para optimizar
+            if frame_count % 10 == 0 and not self._procesando_cara:
+                print(f"[procesar_abrir] Frame {frame_count}: iniciando reconocimiento")
+                self._procesando_cara = True
                 copia = frame.copy()
-                threading.Thread(target=self._reconocer_copia, args=(copia,), daemon=True).start()
-            time.sleep(0.02)
+                threading.Thread(target=self._reconocer_copia,
+                                 args=(copia, comparar_con_encodings),
+                                 daemon=True).start()
+            time.sleep(0.03)
 
-        if self.camera_handler:
-            self.camera_handler.stop()
-
-        if self.locker_abierto:
-            self.lbl_acceso.config(text=f"Locker {self.locker_abierto} abierto")
-            self.lbl_registro.config(text=f"{time.strftime('%H:%M:%S')} - Acceso aprobado")
-        else:
-            self.lbl_acceso.config(text="No se detectó usuario válido.")
-            self.lbl_registro.config(text=f"{time.strftime('%H:%M:%S')} - Acceso fallido")
-
-        self.btn_left.state(['!disabled'])
-        self.btn_right.state(['!disabled'])
-        self.actualizar_estado_lockers()
-
-    def _reconocer_copia(self, frame):
+    def _reconocer_copia(self, frame, comparar_func):
         """Detecta un rostro en la copia de un frame y actualiza el resultado en la GUI."""
-        import face_recognition
-
         try:
+            import face_recognition
+            # Down-sampling equilibrado: 0.25 para detección precisa, cada 10 frames para velocidad
             small = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
             rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-            locations = face_recognition.face_locations(rgb_small)
+            locations = face_recognition.face_locations(rgb_small, model='hog')  # Cambiar a 'hog' para mayor velocidad
             encodings = face_recognition.face_encodings(rgb_small, locations)
 
             if encodings:
-                nombre = self.face_recognizer.comparar(encodings[0], umbral=0.55)
+                # DEBUG: mostrar info
+                print(f"[_reconocer] Detectó {len(locations)} rostro(s), {len(self.encodings_conocidos)} conocidos")
+                nombre = comparar_func(encodings[0], self.encodings_conocidos,
+                                        self.nombres_conocidos, umbral=0.45)
                 if nombre:
-                    possible_name = os.path.splitext(nombre)[0]
-                    user_record = self.db_storage.obtener_usuario_por_nombre(possible_name)
-                    if user_record:
-                        locker_num = self.db_storage.obtener_locker_por_usuario_id(user_record['id'])
-                        if locker_num:
-                            texto = f"Acceso concedido: {possible_name} (Locker {locker_num})"
-                            self.locker_abierto = locker_num
-                            self.abrir_solenoide(locker_num)
-                        else:
-                            texto = f"Usuario {possible_name} no tiene locker asignado"
-                    else:
-                        texto = f"Usuario {possible_name} no registrado en DB"
-                    self.lbl_registro.config(text=f"Último acceso: {time.strftime('%H:%M:%S')}")
+                    texto = f"Acceso concedido a {nombre}"
+                    estado = 'concedido'
+                    print(f"[_reconocer] MATCH: {nombre}")
                 else:
                     texto = "Acceso denegado"
-                self.root.after(0, self.actualizar_resultado, texto)
+                    estado = 'denegado'
+                    nombre = 'desconocido'
+                    print(f"[_reconocer] SIN MATCH - distancia mínima muy alta")
             else:
-                self.root.after(0, self.actualizar_resultado, "Buscando rostro...")
-        except Exception as e:
-            print(f"[reconocer_copia] Error: {e}")
-        finally:
-            self.reconociendo = False
+                texto = "Acceso denegado - no se detecta rostro"
+                nombre = '--'
+                estado = 'sin_rostro'
+                print(f"[_reconocer] No se detectaron rostros")
 
-    def actualizar_resultado(self, texto):
-        # actualiza el recuadro de acceso de la derecha
+            usuario_id = None
+            if nombre and nombre not in (None, '--', 'desconocido'):
+                usuario_id = self.face_storage.obtener_usuario_por_nombre(nombre)
+
+            # Limitar las inserciones de accesos para que no sea un evento por cada frame
+            ahora = time.time()
+            if ahora - self.ultimo_registro_acceso >= 20.0:
+                try:
+                    self.face_storage.guardar_acceso(usuario_id, None if nombre in (None, '--', 'desconocido') else nombre, estado)
+                    self.ultimo_registro_acceso = ahora
+                except Exception as e:
+                    pass
+
+            self.root.after(0, self.actualizar_resultado, texto, nombre if nombre else '--', estado)
+        finally:
+            self._procesando_cara = False
+
+    def actualizar_resultado(self, texto, usuario='--', estado='--'):
         if hasattr(self, "lbl_acceso") and self.lbl_acceso.winfo_exists():
             try:
                 self.lbl_acceso.config(text=texto)
             except tk.TclError:
                 pass
+        if hasattr(self, "lbl_usuario") and self.lbl_usuario.winfo_exists():
+            try:
+                self.lbl_usuario.config(text=f"Usuario: {usuario}")
+            except tk.TclError:
+                pass
+        if hasattr(self, "lbl_estado") and self.lbl_estado.winfo_exists():
+            try:
+                self.lbl_estado.config(text=f"Estado: {estado}")
+            except tk.TclError:
+                pass
 
-    def abrir_solenoide(self, locker_num):
-        """Simula encendido de solenoide (para Raspberry Pi usar RPi.GPIO)."""
-        print(f"[solenoide] Abriendo locker {locker_num}...")
-        try:
-            import RPi.GPIO as GPIO
-            pin = 17 + (locker_num - 1)
-            GPIO.setmode(GPIO.BCM)
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.HIGH)
-            time.sleep(1)
-            GPIO.output(pin, GPIO.LOW)
-            GPIO.cleanup(pin)
-            print(f"[solenoide] Locker {locker_num} accionado.")
-        except Exception as e:
-            print(f"[solenoide] No se pudo accionar el solenoide: {e}")
-
-    def iniciar_registro(self):
-        disponibles = self.db_storage.listar_lockers()
-        ocupados = sum(1 for l in disponibles if l['estado'] == 'ocupado')
-        if ocupados >= 4:
-            messagebox.showwarning("Sin lockers", "No hay lockers disponibles")
-            return
-
-        locker_num = self.db_storage.locker_disponible()
-        if locker_num is None:
-            messagebox.showwarning("Sin lockers", "No hay lockers disponibles")
-            return
-
-        self.nombre_registro = f"locker{locker_num}"
-        if self.db_storage.obtener_usuario_por_nombre(self.nombre_registro):
-            # si ya existe, buscar siguiente disponible por seguridad
-            locker_num = None
-            for l in disponibles:
-                if l['estado'] == 'libre':
-                    locker_num = l['locker']
-                    break
-            if locker_num is None:
-                messagebox.showwarning("Sin lockers", "No hay lockers disponibles")
-                return
-            self.nombre_registro = f"locker{locker_num}"
-
-        self.locker_num_seleccionado = locker_num
-
+    def registrar_locker(self):
         self.modo = 'registrar'
-        self.lbl_acceso.config(text=f"Registrando {self.nombre_registro} por 7 segundos...")
-        self.btn_left.state(['disabled'])
-        self.btn_right.state(['disabled'])
-
-        if not self.preparar_camera():
-            self.btn_left.state(['!disabled'])
-            self.btn_right.state(['!disabled'])
+        # pedir nombre de usuario antes de iniciar registro
+        nombre_usuario = simpledialog.askstring("Registro", "Nombre de usuario:", parent=self.root)
+        if not nombre_usuario:
+            messagebox.showwarning("Registro cancelado", "Debe ingresar un nombre de usuario")
             return
+        self.nombre_registro_actual = nombre_usuario.strip()
 
-        threading.Thread(target=self.procesar_registro_temporizado, daemon=True).start()
+        # reemplazar botones inferiores por uno de vuelta
+        self.btn_left.grid_forget()
+        try:
+            self.btn_right.grid_forget()
+        except AttributeError:
+            pass
+        self.btn_back = ttk.Button(self.root, text="Volver", command=self.volver_menu,
+                                   style='Secondary.TButton')
+        self.btn_back.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=10)
+        # crear controles de captura dentro del panel central (ya definido en mostrar_menu_principal)
+        bottom_frame = ttk.Frame(self.frame_central)
+        bottom_frame.place(relx=0.5, rely=0.9, anchor='s')
+        self.btn_capturar = ttk.Button(bottom_frame, text="Tomar foto",
+                                      command=self.iniciar_cuenta_regresiva,
+                                      style='Primary.TButton', state="disabled")
+        self.btn_capturar.pack(side='left', padx=5)
+        self.label_cuenta = ttk.Label(bottom_frame, text="", font=fuentes["cuenta"], foreground="red")
+        self.label_cuenta.pack(side='left', padx=5)
+        # reiniciar etiquetas info
+        self.lbl_registro.config(text="Fecha y hora de registro")
+        self.lbl_acceso.config(text="")
+        # asegurarse de que flag esté inicializada antes del hilo
+        self.capturar = False
+        # iniciar cámara y registrar
+        if self.preparar_camera():
+            self.btn_capturar.state(['!disabled'])
 
-    def procesar_registro_temporizado(self):
-        inicio = time.time()
-        ultimo_frame = None
-        while self.camera_handler and self.camera_handler.activo and time.time() - inicio < 7:
+    def procesar_registro(self):
+        import time
+        while self.camera_handler.activo:
             ret, frame = self.camera_handler.leer_frame()
             if not ret:
-                time.sleep(0.02)
+                time.sleep(0.01)
                 continue
-            ultimo_frame = frame.copy()
+            # Dibujar rectángulo guía
             h, w, _ = frame.shape
-            cv2.rectangle(frame, (int(w*0.3), int(h*0.2)), (int(w*0.7), int(h*0.8)), (56, 189, 248), 3)
-            cv2.putText(frame, "Alinea tu rostro dentro del recuadro", (20, h - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (236, 240, 241), 2, cv2.LINE_AA)
+            cv2.rectangle(frame, (int(w*0.3), int(h*0.2)), (int(w*0.7), int(h*0.8)), (0,255,0), 2)
+            if self.capturar:
+                self.capturar = False
+                self.guardar_foto(frame)
             self.root.after(0, self.mostrar_frame, frame)
-            time.sleep(0.02)
-
-        if self.camera_handler:
-            self.camera_handler.stop()
-
-        if ultimo_frame is not None:
-            self.guardar_foto(ultimo_frame)
-        else:
-            self.lbl_acceso.config(text="No se capturó ninguna imagen")
-
-        self.btn_left.state(['!disabled'])
-        self.btn_right.state(['!disabled'])
+            time.sleep(0.03)
 
     def guardar_foto(self, frame):
+        nombre = getattr(self, 'nombre_registro_actual', None) or self.obtener_nombre_automatico()
         import face_recognition
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        locations = face_recognition.face_locations(rgb)
-
+        locations = face_recognition.face_locations(rgb, model='hog')
         if locations:
             if self.camera_handler:
                 self.camera_handler.stop()
-
-            locker_num = getattr(self, 'locker_num_seleccionado', None)
-            if locker_num is None:
-                locker_num = self.db_storage.locker_disponible()
-
-            if locker_num is None:
-                self.lbl_acceso.config(text="⚠️ No hay lockers libres. Cancelado.")
-                self.root.after(2500, self.volver_menu)
+            # Convertir frame a JPEG en memoria
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if ret:
+                imagen_bytes = buffer.tobytes()
+                try:
+                    usuario_id = self.face_storage.guardar_usuario(nombre, '1234', 'usuario')
+                    self.face_storage.guardar_imagen(usuario_id, imagen_bytes)
+                    os.makedirs('rostros_conocidos', exist_ok=True)
+                    cv2.imwrite(os.path.join('rostros_conocidos', f"{nombre}.jpg"), frame)
+                    messagebox.showinfo("Éxito", f"Usuario {nombre} registrado correctamente")
+                except Exception as e:
+                    messagebox.showerror("Error", f"No se pudo guardar usuario: {e}")
+                    if hasattr(self, 'btn_capturar'):
+                        self.btn_capturar.config(state="normal")
+                    return
+            else:
+                messagebox.showerror("Error", "No se pudo convertir la imagen")
+                if hasattr(self, 'btn_capturar'):
+                    self.btn_capturar.config(state="normal")
                 return
-
-            user_id = self.db_storage.guardar_usuario(self.nombre_registro, '1234', 'usuario')
-
-            nombre_archivo = f"{self.nombre_registro}.jpg"
-            if os.path.exists(os.path.join(self.face_storage.carpeta, nombre_archivo)):
-                now = time.strftime('%Y%m%d_%H%M%S')
-                nombre_archivo = f"{self.nombre_registro}_{now}.jpg"
-
-            self.face_storage.guardar(frame, nombre_archivo)
-            self.face_recognizer.recargar()
-
-            _, buffer = cv2.imencode('.jpg', frame)
-            if buffer is not None:
-                self.db_storage.guardar_imagen(user_id, buffer.tobytes())
-
-            self.db_storage.asignar_locker(user_id, locker_num)
-
-            self.lbl_acceso.config(text=f"✅ {self.nombre_registro} registrado y asignado a locker {locker_num}")
-            self.lbl_registro.config(text=f"Registrado: {time.strftime('%d/%m/%Y %H:%M:%S')}")
-            self.actualizar_estado_lockers()
-            self.root.after(2500, self.volver_menu)
+            self.mostrar_frame(frame)
+            ahora = time.strftime("%d/%m/%Y %H:%M:%S")
+            self.lbl_registro.config(text=ahora)
+            # esperar unos segundos antes de volver al menú
+            self.root.after(4000, self.volver_menu)
         else:
-            self.lbl_acceso.config(text="⚠️ No se detecta rostro. Intenta de nuevo.")
-            self.btn_left.state(['!disabled'])
-            self.btn_right.state(['!disabled'])
-
+            self.root.after(0, lambda: messagebox.showerror("Error", "No se detectó rostro. Intente de nuevo."))
+            self.root.after(0, lambda: self.btn_capturar.config(state="normal"))
+            self.root.after(0, lambda: messagebox.showerror("Error", "No se detectó rostro. Intente de nuevo."))
+            self.root.after(0, lambda: self.btn_capturar.config(state="normal"))
 
     def iniciar_cuenta_regresiva(self):
         self.btn_capturar.config(state="disabled")
@@ -754,18 +807,29 @@ class App:
             self.capturar = True
 
     def mostrar_frame(self, frame):
+        # Log para depuración
+        print("[mostrar_frame] Recibido frame para mostrar", type(frame), frame.shape if hasattr(frame, 'shape') else None)
+        # Log para depuración
+        print("[mostrar_frame] Recibido frame para mostrar", type(frame), frame.shape if hasattr(frame, 'shape') else None)
         if not (hasattr(self, "label_video") and self.label_video.winfo_exists()):
+            print("[mostrar_frame] label_video no existe o fue destruido")
+            print("[mostrar_frame] label_video no existe o fue destruido")
             return
         try:
+            # Convertir a RGB y luego a ImageTk
+            # Convertir a RGB y luego a ImageTk
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             img = Image.fromarray(frame_rgb)
-            w = self.label_video.winfo_width() or 800
-            h = self.label_video.winfo_height() or 480
-            img = img.resize((w, h), Image.Resampling.LANCZOS)
+            # Tamaño fijo para cámara de acceso: evita que se mueva al cambiar tamaño de ventana
+            target_w = 900
+            target_h = 540
+            img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
             imgtk = ImageTk.PhotoImage(image=img)
             self.label_video.imgtk = imgtk
-            self.label_video.configure(image=imgtk)
-        except tk.TclError:
+            self.label_video.configure(image=imgtk, text='')
+            print(f"[mostrar_frame] Frame mostrado en label_video de tamaño {target_w}x{target_h}")
+        except tk.TclError as e:
+            print(f"[mostrar_frame] TclError: {e}")
             pass
 
     def obtener_nombre_automatico(self):
@@ -792,6 +856,4 @@ class App:
         if self.admin_camera_handler:
             self.admin_camera_handler.stop()
             self.admin_camera_handler = None
-        if hasattr(self, 'label_placeholder') and self.label_placeholder.winfo_exists():
-            self.label_placeholder.place(relx=0.5, rely=0.5, anchor='center')  # Mostrar placeholder
         self.mostrar_menu_principal()
