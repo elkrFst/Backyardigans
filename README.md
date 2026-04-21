@@ -1,31 +1,60 @@
-# Backyardigans solaaskhvashdb
+# Smart Locker - Sistema de Reconocimiento Facial
 
-## Uso de la cámara
+Control de acceso a **4 lockers fijos** usando reconocimiento facial.
 
-El programa está preparado para funcionar tanto con una **Raspberry Pi Camera** como con la cámara
-USB/integrada del portátil. Por defecto se intenta abrir la cámara con índice `0` a través de OpenCV.
+## Estructura
 
-- Para forzar un índice distinto (por ejemplo si la laptop reporta más de una cámara) se puede exportar
-  la variable de entorno `CAMERA_INDEX`:
+```
+main.py           - Punto de entrada
+config.py         - Configuración centralizada
+core.py           - Lógica: Base de datos, Reconocimiento, Cámara
+ui.py             - Interfaz gráfica (Tkinter)
+requirements.txt  - Dependencias
+rostros/         - Almacena rostros (máximo 4)
+```
 
-  ```bash
-  set CAMERA_INDEX=0        # Windows
-  export CAMERA_INDEX=1     # Linux/macOS
-  ```
+## Funcionalidades
 
-- Si se ejecuta en una Pi y se desea usar la cámara CSI, active el soporte mediante la
-  variable de entorno `USAR_PICAMERA` (valores admitidos: `1`, `true`, `yes`).
-  El programa automáticamente pasará esta opción a `CameraHandler` en las pantallas
-  de apertura y registro.
+- ✅ **4 Lockers fijos** (locker1, locker2, locker3, locker4)
+- ✅ **Registro automático** - Asigna al primer locker libre (solo usuarios normales)
+- ✅ **Reconocimiento facial** - Abre locker específico
+- ✅ **Admin panel** - Liberar/asignar lockers específicos (admins no consumen lockers)
+- ✅ **Máximo 4 rostros** - Un rostro por locker (solo para usuarios normales)
+- ✅ **Separación de roles** - Admins gestionan el sistema sin ocupar lockers
 
-El código también imprime un mensaje cuando la cámara se abre correctamente y da un error
-en caso contrario.
+## Instalación
 
-### Interfaz y extras
+```bash
+pip install -r requirements.txt
+```
 
-- Diseño más claro y moderno con fondo gris suave.
-- Botón de **Salir** fijo en la esquina inferior izquierda.
-- La cámara ocupa toda la ventana durante el registro de un nuevo usuario.
-- En la pantalla de apertura se muestra, debajo del video, un área para indicar
-  qué locker se abrió y a qué persona se le concedió acceso.
-- El mini‑juego ha sido eliminado para una experiencia más limpia.
+## Uso
+
+```bash
+python main.py
+```
+
+### Flujo de Uso
+
+1. **Admin Login**: Los administradores acceden al panel de control sin ocupar lockers
+2. **Registrar Usuario**: Presiona "Registrar Nuevo Locker" → Se asigna automáticamente al primer locker libre (solo usuarios normales)
+3. **Acceder**: Presiona "Abrir Locker" → Se reconoce el rostro y abre el locker correspondiente
+4. **Admin Panel**: Panel de administración para liberar/asignar lockers específicos
+
+## Configuración
+
+Edita `config.py` para:
+- Credenciales MySQL
+- Resolución de cámara
+- Índice de cámara (0 = integrada)
+- Umbral de similitud de rostros
+
+## Características
+
+- ✅ Reconocimiento facial con face_recognition
+- ✅ Base de datos MySQL
+- ✅ Admin panel para gestión de usuarios
+- ✅ Control de lockers (libre/ocupado)
+- ✅ Registro de accesos
+- ✅ Interfaz limpia y moderna
+

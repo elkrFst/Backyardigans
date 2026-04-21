@@ -1,7 +1,12 @@
-opencv-python
+# Reconocimiento facial
 face-recognition
+opencv-python
+
+# GUI
 Pillow
-imutils
-RPi.GPIO          # Solo para Raspberry Pi (control cerradura)
+
+# Base de datos
+mysql-connector-python
+
+# Soporte
 numpy
-matplotlib
