@@ -8,7 +8,7 @@ import threading
 from datetime import datetime
 import time
 
-from config import COLORES, FUENTES, ADMIN_CONFIG
+from config import COLORES, FUENTES, ADMIN_CONFIG, WINDOW_SIZE, WINDOW_FULLSCREEN
 from core import Camera, FaceRecognizer
 
 
@@ -32,7 +32,9 @@ class UIApp:
         
         # Configurar ventana
         self.root.title("Sistema de Lockers - Reconocimiento Facial")
-        self.root.geometry("1024x640")
+        self.root.geometry(WINDOW_SIZE)
+        if WINDOW_FULLSCREEN:
+            self.root.attributes('-fullscreen', True)
         self.root.configure(bg=COLORES["fondo"])
         self.root.protocol("WM_DELETE_WINDOW", self.cerrar)
         
@@ -380,7 +382,7 @@ class UIApp:
         """Abre panel de administración con login personalizado"""
         login_win = tk.Toplevel(self.root)
         login_win.title("Acceso administrador")
-        login_win.geometry("420x320")
+        login_win.geometry("380x280")
         login_win.resizable(False, False)
         login_win.configure(bg=COLORES['fondo'])
 
@@ -460,7 +462,7 @@ class AdminWindow(tk.Toplevel):
     def __init__(self, parent, db, camera, face_recognizer):
         super().__init__(parent)
         self.title("Panel de Administración")
-        self.geometry("800x500")
+        self.geometry("750x450")
         self.configure(bg=COLORES["fondo"])
         self.db = db
         self.camera = camera
@@ -616,7 +618,7 @@ class AdminWindow(tk.Toplevel):
         # Crear ventana para pedir locker y nombre
         dialog = tk.Toplevel(self)
         dialog.title("Asignar Locker")
-        dialog.geometry("320x220")
+        dialog.geometry("300x200")
         dialog.resizable(False, False)
         dialog.configure(bg=COLORES['fondo'])
         dialog.transient(self)
@@ -694,7 +696,7 @@ class AdminWindow(tk.Toplevel):
         """Captura rostro para locker específico"""
         captura_win = tk.Toplevel(self)
         captura_win.title(f"Capturar rostro - Locker {locker_num}")
-        captura_win.geometry("800x600")
+        captura_win.geometry("750x420")
         captura_win.configure(bg=COLORES['fondo'])
         
         header = ttk.Frame(captura_win, style='Card.TFrame')
