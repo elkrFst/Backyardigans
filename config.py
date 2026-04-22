@@ -47,7 +47,7 @@ DB_CONFIG = {
 
 # Cámara
 CAMERA_CONFIG = {
-    'resolucion': (640, 480),
+    'resolucion': (600, 240),
     'fps': 30,
     'usar_picamera': os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 }
@@ -67,4 +67,4 @@ ADMIN_CONFIG = {
 
 # UI
 WINDOW_SIZE = "800x480"  # Pantalla 7 pulgadas Raspberry Pi
-WINDOW_FULLSCREEN = True  # Activado para Raspberry Pi
+WINDOW_FULLSCREEN = False  # Activado para Raspberry Pi
