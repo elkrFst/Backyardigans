@@ -66,5 +66,5 @@ ADMIN_CONFIG = {
 }
 
 # UI
-WINDOW_SIZE = "1024x640"
-WINDOW_FULLSCREEN = False  # Cambiar a True en Raspberry Pi
+WINDOW_SIZE = "800x480"  # Pantalla 7 pulgadas Raspberry Pi
+WINDOW_FULLSCREEN = True  # Activado para Raspberry Pi

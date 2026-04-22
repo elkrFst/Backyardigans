@@ -4,9 +4,15 @@ import cv2
 import threading
 import time
 from datetime import datetime, timezone, timedelta
-import face_recognition
 import mysql.connector
 from mysql.connector import Error
+
+# Intentar usar face_recognition, sino usar alternativa con OpenCV
+try:
+    import face_recognition
+except ImportError:
+    print("[WARNING] face_recognition no disponible, usando OpenCV alternativa")
+    import face_recognition_cv2 as face_recognition
 
 from config import DB_CONFIG, FACE_CONFIG, CAMERA_CONFIG
 
