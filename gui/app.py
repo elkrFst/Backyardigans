@@ -25,7 +25,7 @@ class App:
 
         # pantalla completa en Raspberry
         # Ventana clásica no full-screen para desarrollo, pero permite maximizar.
-        self.root.geometry("1024x640")
+        self.root.geometry("800x480")
         self.root.state('zoomed')
         self.root.bind('<Escape>', lambda e: self.root.state('normal'))
 
@@ -179,7 +179,7 @@ class App:
         self.frame_central = ttk.Frame(self.root, style='Card.TFrame')
         self.frame_central.grid(row=1, column=0, sticky='nsew', padx=10, pady=10)
         self.frame_central.grid_propagate(False)
-        self.frame_central.config(width=920, height=540)
+        self.frame_central.config(width=800, height=480)
 
         self.label_video = ttk.Label(self.frame_central, background="#101828", foreground="#f8fafc",
                                      text="Cámara inactiva", anchor='center', font=fuentes['subtitulo'])
@@ -452,7 +452,7 @@ class App:
         index = int(os.environ.get('CAMERA_INDEX', 0)) if os.environ.get('CAMERA_INDEX', '0').isdigit() else 0
         usar_picamera = os.environ.get('USAR_PICAMERA', '').lower() in ('1', 'true', 'yes')
         try:
-            self.admin_camera_handler = CameraHandler(fuente=index, resolucion=(640, 480), usar_picamera=usar_picamera)
+            self.admin_camera_handler = CameraHandler(fuente=index, resolucion=(600, 240), usar_picamera=usar_picamera)
             self.admin_camera_handler.iniciar()
             self.admin_btn_capturar.config(state='normal')
             threading.Thread(target=self.admin_actualizar_video, daemon=True).start()

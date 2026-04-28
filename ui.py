@@ -10,6 +10,7 @@ import time
 
 from config import COLORES, FUENTES, ADMIN_CONFIG, WINDOW_SIZE, WINDOW_FULLSCREEN
 from core import Camera, FaceRecognizer
+from led_controller import obtener_leds
 
 
 # ============================================================================
@@ -22,6 +23,7 @@ class UIApp:
         self.root = root
         self.db = db
         self.face_recognizer = face_recognizer
+        self.led_controller = obtener_leds()  # Inicializar control de LEDs
         self.camera = None
         self.encodings_conocidos = []
         self.nombres_conocidos = []
@@ -254,9 +256,13 @@ class UIApp:
                     usuario = self.db.obtener_usuario_por_nombre(nombre_limpio)
                     
                     if usuario:
-                        locker_num = nombre_limpio.replace('locker', '')
+                        locker_num = int(nombre_limpio.replace('locker', ''))
+                        # Encender LED del locker
+                        self.led_controller.encender_led(locker_num)
                         self.lbl_estado.config(text=f"¡Perfecto! Se encontró tu locker {locker_num}.")
                         messagebox.showinfo("¡Acceso concedido!", f"Locker {locker_num} abierto.")
+                        # Apagar LED después de 3 segundos
+                        self.root.after(3000, lambda: self.led_controller.apagar_led(locker_num))
                         self.mostrar_menu_principal()
                         return
                 else:
@@ -369,6 +375,10 @@ class UIApp:
             if ret:
                 self.db.guardar_imagen(self.usuario_id_registro, buffer.tobytes())
             
+            # Parpadear LED al registrar (evento importante)
+            locker_num = int(self.locker_asignado)
+            threading.Thread(target=self.led_controller.parpadear_led, args=(locker_num, 2, 0.3), daemon=True).start()
+            
             messagebox.showinfo("¡Listo!", f"Locker {self.locker_asignado} está registrado y listo para usar.")
             
             # Recargar rostros conocidos
@@ -450,6 +460,9 @@ class UIApp:
         if self.camera:
             self.camera.detener()
         self.db.cerrar()
+        # Limpiar LEDs al cerrar
+        if hasattr(self, 'led_controller'):
+            self.led_controller.limpiar()
         self.root.destroy()
 
 
