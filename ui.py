@@ -10,7 +10,7 @@ import time
 
 from config import COLORES, FUENTES, ADMIN_CONFIG, WINDOW_SIZE, WINDOW_FULLSCREEN
 from core import Camera, FaceRecognizer
-from led_controller import obtener_leds
+from arduino_led_controller import obtener_arduino_led  # MODIFICADO: importación correcta
 
 
 # ============================================================================
@@ -23,11 +23,12 @@ class UIApp:
         self.root = root
         self.db = db
         self.face_recognizer = face_recognizer
-        self.led_controller = obtener_leds()  # Inicializar control de LEDs
+        self.led_controller = obtener_arduino_led()  # MODIFICADO: crear controlador de LED único
         self.camera = None
         self.encodings_conocidos = []
         self.nombres_conocidos = []
         self.modo = None  # 'abrir' o 'registrar'
+        self.led_registro_activo = False  # Rastrear si LED está encendido durante registro
         self.preview_pausado = False  # Control para pausar preview
         self.frame_count = 0  # Contador para procesar solo cada X frames
         self.detect_interval = 5  # Procesar detección cada 5 frames
@@ -257,12 +258,12 @@ class UIApp:
                     
                     if usuario:
                         locker_num = int(nombre_limpio.replace('locker', ''))
-                        # Encender LED del locker
-                        self.led_controller.encender_led(locker_num)
+                        # MODIFICADO: Encender LED único (sin número de locker)
+                        self.led_controller.encender_led()
                         self.lbl_estado.config(text=f"¡Perfecto! Se encontró tu locker {locker_num}.")
                         messagebox.showinfo("¡Acceso concedido!", f"Locker {locker_num} abierto.")
-                        # Apagar LED después de 3 segundos
-                        self.root.after(3000, lambda: self.led_controller.apagar_led(locker_num))
+                        # MODIFICADO: Apagar LED después de 3 segundos (sin número)
+                        self.root.after(3000, lambda: self.led_controller.apagar_led())
                         self.mostrar_menu_principal()
                         return
                 else:
@@ -326,6 +327,10 @@ class UIApp:
     def _mostrar_registro(self, nombre, usuario_id, locker_asignado):
         """Muestra video para captura de registro - OPTIMIZADO"""
         if self.modo != 'registrar':
+            # Apagar LED si se sale del modo registro
+            if self.led_registro_activo:
+                self.led_controller.apagar_led()  # MODIFICADO: sin número
+                self.led_registro_activo = False
             return
         
         try:
@@ -339,10 +344,20 @@ class UIApp:
                     cv2.rectangle(frame_rgb, (left, top), (right, bottom), (0, 255, 0), 3)
                 
                 self.captura_disponible = len(rostros) > 0
+                locker_num = int(locker_asignado)
+                
                 if self.captura_disponible:
                     self.lbl_estado.config(text="Rostro detectado. Presiona Capturar rostro cuando estés listo.")
+                    # MODIFICADO: Encender LED cuando se detecta un rostro
+                    if not self.led_registro_activo:
+                        self.led_controller.encender_led()  # MODIFICADO: sin número
+                        self.led_registro_activo = True
                 else:
                     self.lbl_estado.config(text="No detecto un rostro claro. Ajusta tu posición y prueba otra vez.")
+                    # MODIFICADO: Apagar LED cuando no se detecta rostro
+                    if self.led_registro_activo:
+                        self.led_controller.apagar_led()  # MODIFICADO: sin número
+                        self.led_registro_activo = False
                 
                 imagen = Image.fromarray(frame_rgb)
                 imagen.thumbnail((624, 468), Image.Resampling.LANCZOS)
@@ -375,9 +390,11 @@ class UIApp:
             if ret:
                 self.db.guardar_imagen(self.usuario_id_registro, buffer.tobytes())
             
-            # Parpadear LED al registrar (evento importante)
-            locker_num = int(self.locker_asignado)
-            threading.Thread(target=self.led_controller.parpadear_led, args=(locker_num, 2, 0.3), daemon=True).start()
+            # MODIFICADO: Parpadear LED al registrar (2 segundos, velocidad 0.3s) - sin número de locker
+            threading.Thread(target=self.led_controller.parpadear_led, args=(2, 0.3), daemon=True).start()
+            
+            # Desmarcar que el LED de registro está activo
+            self.led_registro_activo = False
             
             messagebox.showinfo("¡Listo!", f"Locker {self.locker_asignado} está registrado y listo para usar.")
             
@@ -387,6 +404,10 @@ class UIApp:
             self.mostrar_menu_principal()
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar: {e}")
+            # Apagar LED si hay error
+            if self.led_registro_activo:
+                self.led_controller.apagar_led()  # MODIFICADO: sin número
+                self.led_registro_activo = False
     
     def abrir_admin(self):
         """Abre panel de administración con login personalizado"""
