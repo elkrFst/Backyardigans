@@ -1,15 +1,14 @@
 """
-Controlador para Arduino Nano con 1 LED + sonido PC
+Controlador para Arduino Nano con 4 LEDs y sonido PC
 """
 
 import serial
 import time
-import threading
 import winsound  # Solo Windows
 # Para Linux/Mac: import os
 
 class ArduinoLED:
-    def __init__(self, puerto='COM6', baudrate=9600):
+    def __init__(self, puerto='COM4', baudrate=9600):
         self.puerto = puerto
         self.baudrate = baudrate
         self.serial = None
@@ -26,19 +25,30 @@ class ArduinoLED:
             self.conectado = False
             print(f"[ERROR] No se pudo conectar a Arduino: {e}")
     
-    def encender_led(self):
-        if self.conectado and self.serial:
-            try:
-                self.serial.write(b'CARAS\n')
-                self.serial.flush()
-                print("[LED] ENCENDIDO")
-                # Reproducir sonido de confirmación (Windows)
-                self._reproducir_sonido()
-                return True
-            except:
-                return False
-        return False
-    
+    def enviar_comando(self, led_num, accion):
+        if not self.conectado or not self.serial:
+            return False
+
+        if led_num not in (1, 2, 3, 4):
+            print(f"[ERROR] LED inválido: {led_num}")
+            return False
+
+        comando = f"L{led_num}{accion}\n".encode('ascii')
+        try:
+            self.serial.write(comando)
+            self.serial.flush()
+            print(f"[LED] Enviado comando: {comando.strip().decode()}")
+            return True
+        except Exception as e:
+            print(f"[ERROR] No se pudo enviar comando al Arduino: {e}")
+            return False
+
+    def encender_led(self, led_num=1):
+        resultado = self.enviar_comando(led_num, "ON")
+        if resultado:
+            self._reproducir_sonido()
+        return resultado
+
     def _reproducir_sonido(self):
         """Reproduce sonido de confirmación por los altavoces de la PC"""
         try:
@@ -49,32 +59,23 @@ class ArduinoLED:
         except:
             print("[SONIDO] No se pudo reproducir (puede que no sea Windows)")
     
-    def apagar_led(self):
-        if self.conectado and self.serial:
-            try:
-                self.serial.write(b'NO\n')
-                self.serial.flush()
-                print("[LED] APAGADO")
-                return True
-            except:
-                return False
-        return False
+    def apagar_led(self, led_num=1):
+        return self.enviar_comando(led_num, "OFF")
     
-    def parpadear_led(self, duracion=2, velocidad=0.3):
+    def parpadear_led(self, led_num=1, duracion=2, velocidad=0.3):
         if not self.conectado:
             return
         tiempo_inicio = time.time()
         while time.time() - tiempo_inicio < duracion:
-            self.encender_led()
+            self.encender_led(led_num)
             time.sleep(velocidad)
-            self.apagar_led()
+            self.apagar_led(led_num)
             time.sleep(velocidad)
     
     def limpiar(self):
         if self.serial and self.serial.is_open:
-            self.apagar_led()
             self.serial.close()
 
 
-def obtener_arduino_led(puerto='COM6'):
-    return ArduinoLED(puerto)
+def obtener_arduino_led(puerto='COM4', baudrate=9600):
+    return ArduinoLED(puerto, baudrate)

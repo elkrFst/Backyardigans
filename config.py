@@ -52,6 +52,12 @@ CAMERA_CONFIG = {
     'usar_picamera': os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 }
 
+# Arduino Nano
+ARDUINO_CONFIG = {
+    'puerto': 'COM4',
+    'baudrate': 9600
+}
+
 # Reconocimiento facial
 FACE_CONFIG = {
     'carpeta_rostros': 'rostros',  # Renombrada de rostros_conocidos

@@ -8,7 +8,7 @@ import threading
 from datetime import datetime
 import time
 
-from config import COLORES, FUENTES, ADMIN_CONFIG, WINDOW_SIZE, WINDOW_FULLSCREEN
+from config import COLORES, FUENTES, ADMIN_CONFIG, WINDOW_SIZE, WINDOW_FULLSCREEN, ARDUINO_CONFIG
 from core import Camera, FaceRecognizer
 from arduino_led_controller import obtener_arduino_led  # MODIFICADO: importación correcta
 
@@ -23,7 +23,7 @@ class UIApp:
         self.root = root
         self.db = db
         self.face_recognizer = face_recognizer
-        self.led_controller = obtener_arduino_led()  # MODIFICADO: crear controlador de LED único
+        self.led_controller = obtener_arduino_led(ARDUINO_CONFIG['puerto'], ARDUINO_CONFIG['baudrate'])  # MODIFICADO: crear controlador de LED único
         self.camera = None
         self.encodings_conocidos = []
         self.nombres_conocidos = []
@@ -47,10 +47,6 @@ class UIApp:
         
         # Estilos
         self._configurar_estilos()
-        
-        # Botón Salir persistente
-        self.btn_salir = ttk.Button(self.root, text="Salir", command=self.cerrar, style='Secondary.TButton')
-        self.btn_salir.place(relx=0.0, rely=1.0, anchor='sw', x=14, y=-12)
         
         self.mostrar_menu_principal()
     
@@ -85,10 +81,9 @@ class UIApp:
         style.map('TNotebook.Tab', background=[('selected', COLORES['boton_principal'])], foreground=[('selected', COLORES['texto'])])
     
     def limpiar_frame(self):
-        """Elimina todos los widgets excepto persistentes"""
+        """Elimina todos los widgets"""
         for widget in self.root.winfo_children():
-            if widget != self.btn_salir:
-                widget.destroy()
+            widget.destroy()
     
     def mostrar_menu_principal(self):
         """Pantalla principal con video y opciones"""
@@ -226,16 +221,40 @@ class UIApp:
         self.modo = 'abrir'
         self.limpiar_frame()
         
+        # Cargar rostros conocidos
+        self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
+        
+        if not self.encodings_conocidos:
+            messagebox.showwarning("Sin rostros registrados", "No hay rostros registrados. Regístrate primero.")
+            self.mostrar_menu_principal()
+            return
+        
+        if not self.camera:
+            self.camera = Camera(0)
+            self.camera.iniciar()
+        
         header = ttk.Frame(self.root, style='Card.TFrame')
         header.pack(fill='x', padx=10, pady=(10, 5))
         ttk.Label(header, text="Abrir locker", style='Header.TLabel').pack(side='left', padx=12, pady=10)
         ttk.Button(header, text="Volver", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='right', padx=12, pady=10)
         
-        self.label_video = ttk.Label(self.root, background=COLORES['info_bg'], relief='flat')
-        self.label_video.pack(fill='both', expand=True, padx=10, pady=10)
-        
         self.lbl_estado = ttk.Label(self.root, text="Acércate a la cámara. Tu locker se abrirá automáticamente cuando te reconozca.", style='Info.TLabel', justify='center', wraplength=600)
         self.lbl_estado.pack(fill='x', padx=20, pady=(0, 10))
+        
+        # Contenedor principal: video a la izquierda + botones a la derecha
+        contenedor = ttk.Frame(self.root)
+        contenedor.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Video a la izquierda
+        video_frame = ttk.Frame(contenedor)
+        video_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        self.label_video = ttk.Label(video_frame, background=COLORES['info_bg'], relief='flat')
+        self.label_video.pack(fill='both', expand=True)
+        
+        # Botones a la derecha (vertical)
+        botones = ttk.Frame(contenedor)
+        botones.pack(side='right', fill='y')
+        ttk.Button(botones, text="Cancelar", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(fill='x', padx=6, pady=6)
         
         self._reconocer_acceso()
     
@@ -259,18 +278,17 @@ class UIApp:
                     if usuario:
                         locker_num = int(nombre_limpio.replace('locker', ''))
                         # MODIFICADO: Encender LED único (sin número de locker)
-                        self.led_controller.encender_led()
+                        self.led_controller.encender_led(locker_num)
                         self.lbl_estado.config(text=f"¡Perfecto! Se encontró tu locker {locker_num}.")
                         messagebox.showinfo("¡Acceso concedido!", f"Locker {locker_num} abierto.")
-                        # MODIFICADO: Apagar LED después de 3 segundos (sin número)
-                        self.root.after(3000, lambda: self.led_controller.apagar_led())
+                        self.root.after(3000, lambda: self.led_controller.apagar_led(locker_num))
                         self.mostrar_menu_principal()
                         return
                 else:
                     self.lbl_estado.config(text="Buscando rostro... mantén tu cara frente a la cámara.")
                 
                 imagen = Image.fromarray(frame_rgb)
-                imagen.thumbnail((624, 468), Image.Resampling.LANCZOS)
+                imagen.thumbnail((450, 350), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image=imagen)
                 self.label_video.config(image=photo)
                 self.label_video.image = photo
@@ -296,11 +314,8 @@ class UIApp:
             messagebox.showerror("Error", f"El locker {locker_asignado} ya está registrado.")
             return
         
-        try:
-            usuario_id = self.db.guardar_usuario(nombre_usuario, "1234", 'usuario')
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo asignar el locker: {e}")
-            return
+        # NO guardar el usuario aquí - solo mostrar pantalla de captura
+        # El usuario se guardará cuando se capture exitosamente el rostro
         
         self.modo = 'registrar'
         self.limpiar_frame()
@@ -310,26 +325,36 @@ class UIApp:
         ttk.Label(header, text="Registrar nuevo rostro", style='Header.TLabel').pack(side='left', padx=12, pady=10)
         ttk.Button(header, text="Volver", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='right', padx=12, pady=10)
         
-        self.label_video = ttk.Label(self.root, background=COLORES['info_bg'], relief='flat')
-        self.label_video.pack(fill='both', expand=True, padx=10, pady=10)
-        
         self.lbl_estado = ttk.Label(self.root, text=f"Vamos a configurar tu Locker {locker_asignado}. Mantén la cara centrada y sonríe naturalmente.", style='Info.TLabel', justify='center', wraplength=700)
         self.lbl_estado.pack(fill='x', padx=20, pady=(0, 10))
         
-        botones = ttk.Frame(self.root, style='Card.TFrame')
-        botones.pack(fill='x', padx=10, pady=(0, 16))
-        ttk.Button(botones, text="Capturar rostro", command=self._capturar_registro, style='Primary.TButton').pack(side='left', fill='x', expand=True, padx=6)
-        ttk.Button(botones, text="Cancelar", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='left', fill='x', expand=True, padx=6)
+        # Contenedor principal: video a la izquierda + botones a la derecha
+        contenedor = ttk.Frame(self.root)
+        contenedor.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Video a la izquierda
+        video_frame = ttk.Frame(contenedor)
+        video_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        self.label_video = ttk.Label(video_frame, background=COLORES['info_bg'], relief='flat')
+        self.label_video.pack(fill='both', expand=True)
+        
+        # Botones a la derecha (vertical)
+        botones = ttk.Frame(contenedor)
+        botones.pack(side='right', fill='y')
+        ttk.Button(botones, text="Capturar rostro", command=self._capturar_registro, style='Primary.TButton').pack(fill='x', padx=6, pady=6)
+        ttk.Button(botones, text="Cancelar", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(fill='x', padx=6, pady=6)
         
         self.captura_disponible = False
-        self._mostrar_registro(nombre_usuario, usuario_id, locker_asignado)
+        self.nombre_registro = nombre_usuario
+        self.locker_asignado = locker_asignado
+        self._mostrar_registro(nombre_usuario, locker_asignado)
     
-    def _mostrar_registro(self, nombre, usuario_id, locker_asignado):
+    def _mostrar_registro(self, nombre, locker_asignado):
         """Muestra video para captura de registro - OPTIMIZADO"""
         if self.modo != 'registrar':
             # Apagar LED si se sale del modo registro
             if self.led_registro_activo:
-                self.led_controller.apagar_led()  # MODIFICADO: sin número
+                self.led_controller.apagar_led(self.locker_asignado)
                 self.led_registro_activo = False
             return
         
@@ -344,36 +369,31 @@ class UIApp:
                     cv2.rectangle(frame_rgb, (left, top), (right, bottom), (0, 255, 0), 3)
                 
                 self.captura_disponible = len(rostros) > 0
-                locker_num = int(locker_asignado)
                 
                 if self.captura_disponible:
                     self.lbl_estado.config(text="Rostro detectado. Presiona Capturar rostro cuando estés listo.")
-                    # MODIFICADO: Encender LED cuando se detecta un rostro
+                    # MODIFICADO: Encender LED del locker asignado cuando se detecta un rostro
                     if not self.led_registro_activo:
-                        self.led_controller.encender_led()  # MODIFICADO: sin número
+                        self.led_controller.encender_led(self.locker_asignado)
                         self.led_registro_activo = True
                 else:
                     self.lbl_estado.config(text="No detecto un rostro claro. Ajusta tu posición y prueba otra vez.")
-                    # MODIFICADO: Apagar LED cuando no se detecta rostro
+                    # MODIFICADO: Apagar LED del locker asignado cuando no se detecta rostro
                     if self.led_registro_activo:
-                        self.led_controller.apagar_led()  # MODIFICADO: sin número
+                        self.led_controller.apagar_led(self.locker_asignado)
                         self.led_registro_activo = False
-                
                 imagen = Image.fromarray(frame_rgb)
-                imagen.thumbnail((624, 468), Image.Resampling.LANCZOS)
+                imagen.thumbnail((450, 350), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image=imagen)
                 self.label_video.config(image=photo)
                 self.label_video.image = photo
                 
                 self.frame_actual_registro = frame
-                self.nombre_registro = nombre
-                self.usuario_id_registro = usuario_id
-                self.locker_asignado = locker_asignado
         except Exception as e:
             print(f"[ERROR] Registro: {e}")
         
         # Intervalo de 100ms
-        self.root.after(100, lambda: self._mostrar_registro(nombre, usuario_id, locker_asignado))
+        self.root.after(100, lambda: self._mostrar_registro(nombre, locker_asignado))
     
     def _capturar_registro(self):
         """Captura y guarda el rostro"""
@@ -382,16 +402,22 @@ class UIApp:
             return
         
         try:
+            # Ahora sí guardar el usuario en BD (solo cuando se captura con éxito)
+            usuario_id = self.db.guardar_usuario(self.nombre_registro, "1234", 'usuario')
+            if not usuario_id:
+                messagebox.showerror("Error", "No se pudo guardar el usuario en la base de datos.")
+                return
+            
             # Asociar rostro
             self.face_recognizer.asociar_rostro(self.nombre_registro, self.frame_actual_registro)
             
             # Guardar imagen en BD
             ret, buffer = cv2.imencode('.jpg', self.frame_actual_registro)
             if ret:
-                self.db.guardar_imagen(self.usuario_id_registro, buffer.tobytes())
+                self.db.guardar_imagen(usuario_id, buffer.tobytes())
             
             # MODIFICADO: Parpadear LED al registrar (2 segundos, velocidad 0.3s) - sin número de locker
-            threading.Thread(target=self.led_controller.parpadear_led, args=(2, 0.3), daemon=True).start()
+            threading.Thread(target=self.led_controller.parpadear_led, args=(self.locker_asignado, 2, 0.3), daemon=True).start()
             
             # Desmarcar que el LED de registro está activo
             self.led_registro_activo = False
@@ -406,7 +432,7 @@ class UIApp:
             messagebox.showerror("Error", f"Error al guardar: {e}")
             # Apagar LED si hay error
             if self.led_registro_activo:
-                self.led_controller.apagar_led()  # MODIFICADO: sin número
+                self.led_controller.apagar_led(self.locker_asignado)
                 self.led_registro_activo = False
     
     def abrir_admin(self):
@@ -485,6 +511,10 @@ class UIApp:
         if hasattr(self, 'led_controller'):
             self.led_controller.limpiar()
         self.root.destroy()
+    
+    def salir(self):
+        """Alias para cerrar la aplicación"""
+        self.cerrar()
 
 
 # ============================================================================

@@ -2,6 +2,7 @@
 # Se usa OpenCV con CascadeClassifier como alternativa (face_recognition_cv2.py)
 # Si necesitas face-recognition real, instalar: pip install dlib face-recognition face-recognition-models
 opencv-python
+pyserial
 
 # GUI
 Pillow
