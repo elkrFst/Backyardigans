@@ -14,7 +14,15 @@ except ImportError:
     print("[WARNING] face_recognition no disponible, usando OpenCV alternativa")
     import face_recognition_cv2 as face_recognition
 
-from config import DB_CONFIG, FACE_CONFIG, CAMERA_CONFIG
+from config import DB_CONFIG, FACE_CONFIG, CAMERA_CONFIG, GPIO_CONFIG
+
+# Intentar importar gpiozero (solo disponible en Raspberry Pi)
+try:
+    from gpiozero import OutputDevice
+    GPIO_DISPONIBLE = True
+except ImportError:
+    print("[WARNING] gpiozero no disponible. GPIO deshabilitado. Ejecutando en simulación.")
+    GPIO_DISPONIBLE = False
 
 
 # ============================================================================
@@ -338,3 +346,93 @@ class Camera:
         if self.camara:
             self.camara.release()
         print("[Cámara] Detenida")
+
+
+# ============================================================================
+# CONTROL DE LOCKERS (GPIO)
+# ============================================================================
+class LockerController:
+    """Control de relés de lockers mediante GPIO (Raspberry Pi)"""
+    
+    def __init__(self):
+        self.relés = {}
+        self.activo = GPIO_CONFIG['habilitado'] and GPIO_DISPONIBLE
+        
+        if not self.activo:
+            print("[GPIO] Control de lockers deshabilitado o gpiozero no disponible")
+            return
+        
+        try:
+            # Inicializar los 4 relés
+            for locker_num, pin in GPIO_CONFIG['pines'].items():
+                self.relés[locker_num] = OutputDevice(
+                    pin,
+                    active_high=GPIO_CONFIG['active_high']
+                )
+                print(f"[GPIO] Relé locker {locker_num} configurado en pin {pin}")
+        except Exception as e:
+            print(f"[ERROR] Inicializando GPIO: {e}")
+            self.activo = False
+    
+    def activar_locker(self, locker_num):
+        """
+        Activa un locker durante el tiempo configurado (pulso de apertura).
+        Se ejecuta en un thread separado para no bloquear la interfaz.
+        """
+        if not self.activo or locker_num not in self.relés:
+            print(f"[GPIO] Locker {locker_num} no disponible o GPIO deshabilitado")
+            return
+        
+        # Ejecutar en thread separado para no bloquear
+        thread = threading.Thread(
+            target=self._pulso_locker,
+            args=(locker_num,),
+            daemon=True
+        )
+        thread.start()
+    
+    def _pulso_locker(self, locker_num):
+        """Ejecuta el pulso de apertura del locker (bloquea solo este thread)"""
+        try:
+            relé = self.relés[locker_num]
+            duracion = GPIO_CONFIG['pulso_duracion']
+            
+            print(f"[GPIO] 🔓 Activando locker {locker_num} por {duracion}s")
+            
+            # Activar relé (encender = False porque active_high=False)
+            relé.on()
+            
+            # Esperar el tiempo de pulso
+            time.sleep(duracion)
+            
+            # Desactivar relé
+            relé.off()
+            
+            print(f"[GPIO] 🔒 Locker {locker_num} desactivado")
+        except Exception as e:
+            print(f"[ERROR] Pulsando locker {locker_num}: {e}")
+    
+    def desactivar_todos(self):
+        """Desactiva todos los relés (seguridad al cerrar la app)"""
+        if not self.activo:
+            return
+        
+        try:
+            for locker_num, relé in self.relés.items():
+                relé.off()
+            print("[GPIO] Todos los relés desactivados")
+        except Exception as e:
+            print(f"[ERROR] Desactivando relés: {e}")
+    
+    def cerrar(self):
+        """Cierra y limpia los recursos GPIO"""
+        if not self.activo:
+            return
+        
+        try:
+            self.desactivar_todos()
+            for relé in self.relés.values():
+                relé.close()
+            print("[GPIO] Recursos GPIO liberados")
+        except Exception as e:
+            print(f"[ERROR] Cerrando GPIO: {e}")

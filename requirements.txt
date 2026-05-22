@@ -1,14 +1,10 @@
-# Reconocimiento facial - NOTA: face-recognition requiere dlib que es difícil compilar
-# Se usa OpenCV con CascadeClassifier como alternativa (face_recognition_cv2.py)
-# Si necesitas face-recognition real, instalar: pip install dlib face-recognition face-recognition-models
+# Dependencias principales para ejecutar la aplicación
 opencv-python
-pyserial
-
-# GUI
 Pillow
-
-# Base de datos
-mysql-connector-python
-
-# Soporte
 numpy
+mysql-connector-python
+gpiozero
+
+# Opcional: si deseas usar la librería real face_recognition con dlib
+# face-recognition
+# dlib

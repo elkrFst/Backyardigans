@@ -52,12 +52,6 @@ CAMERA_CONFIG = {
     'usar_picamera': os.environ.get("USAR_PICAMERA", "").lower() in ("1", "true", "yes")
 }
 
-# Arduino Nano
-ARDUINO_CONFIG = {
-    'puerto': 'COM4',
-    'baudrate': 9600
-}
-
 # Reconocimiento facial
 FACE_CONFIG = {
     'carpeta_rostros': 'rostros',  # Renombrada de rostros_conocidos
@@ -69,6 +63,19 @@ FACE_CONFIG = {
 ADMIN_CONFIG = {
     'contraseña_defecto': 'Admin123',
     'total_lockers': 4
+}
+
+# GPIO - Control de relés de lockers (Raspberry Pi)
+GPIO_CONFIG = {
+    'habilitado': os.environ.get("GPIO_ENABLED", "").lower() in ("1", "true", "yes"),  # Activar/desactivar GPIO
+    'pines': {
+        1: 17,  # Locker 1
+        2: 27,  # Locker 2
+        3: 22,  # Locker 3
+        4: 23   # Locker 4
+    },
+    'pulso_duracion': 2.0,  # Duración del pulso en segundos
+    'active_high': False    # Los relés se activan con señal baja (active_high=False)
 }
 
 # UI
