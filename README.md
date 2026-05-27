@@ -1,97 +1,188 @@
 # Smart Locker - Sistema de Reconocimiento Facial
 
-Control de acceso a **4 lockers fijos** usando reconocimiento facial.
+Este proyecto es un sistema de acceso controlado por rostro para **locker automáticos**. El enfoque actual es la aplicación principal, sin dependencias de Arduino ni instrucciones externas.
 
-## Estructura
+## Estructura del proyecto
 
 ```
-main.py                - Punto de entrada
-config.py              - Configuración centralizada
-core.py                - Lógica: Base de datos, Reconocimiento, Cámara
-ui.py                  - Interfaz gráfica (Tkinter)
-led_controller.py      - Control de 4 LEDs (Raspberry Pi GPIO)
-test_leds.py           - Script para probar los LEDs
-requirements.txt       - Dependencias
-CONEXION_LEDS.txt      - Instrucciones completas de conexión
-DIAGRAMAS_LEDS.txt     - Diagramas visuales de conexión
-rostros/               - Almacena rostros (máximo 4)
+Backyardigans/
+  main.py
+  config.py
+  core.py
+  ui.py
+  README.md
+  requirements.txt
+  assets/
+    fuentes/
+    iconos/
+  database/
+    mysql_face_storage.py
+  gui/
+    app.py
+  recognition/
+    face_recognizer.py
+  rostros/
+  face_recognition_cv2.py
 ```
 
-## Funcionalidades
+### Archivos principales
 
-- ✅ **4 Lockers fijos** (locker1, locker2, locker3, locker4)
-- ✅ **Registro automático** - Asigna al primer locker libre (solo usuarios normales)
-- ✅ **Reconocimiento facial** - Abre locker específico
-- ✅ **Admin panel** - Liberar/asignar lockers específicos (admins no consumen lockers)
-- ✅ **Máximo 4 rostros** - Un rostro por locker (solo para usuarios normales)
-- ✅ **Separación de roles** - Admins gestionan el sistema sin ocupar lockers
-- ✅ **Control de 4 LEDs** - Simulación visual de lockers (Raspberry Pi GPIO)
+- `main.py`
+  - Punto de entrada de la aplicación.
+  - Intenta conectar a MySQL usando los datos de `config.py`.
+  - Si falla la conexión, usa una base de datos simulada para demostración.
+  - Crea la ventana de Tkinter y arranca la app principal.
 
-## Instalación
+- `config.py`
+  - Configuración centralizada del sistema.
+  - Define colores, fuentes, datos de MySQL, cámara, reconocimiento facial y valores de interfaz.
+  - Permite cambiar resolución, modo pantalla completa y umbral de similitud facial.
 
-```bash
-pip install -r requirements.txt
-```
+- `core.py`
+  - Contiene la lógica de negocio principal.
+  - `Database`: maneja la conexión MySQL y CRUD de usuarios, imágenes y lockers.
+  - `FaceRecognizer`: carga imágenes de rostros, crea encodings y compara rostros.
+  - `Camera`: controla la cámara con OpenCV en un hilo independiente.
+  - `LockerController`: controla los relés de los 4 lockers mediante GPIO en Raspberry Pi.
+
+- `ui.py`
+  - Interfaz gráfica principal construida con Tkinter.
+  - Administra el menú principal, registro de rostros, acceso por reconocimiento y panel administrativo.
+  - Muestra la vista de cámara en tiempo real y los estados del sistema.
+
+- `requirements.txt`
+  - Lista de dependencias necesarias para ejecutar la aplicación.
+
+- `face_recognition_cv2.py`
+  - Módulo alternativo compatible con `face_recognition`.
+  - Usa OpenCV y Haar cascades para detectar rostros cuando `face-recognition` no está instalado.
+
+### Carpetas y módulos secundarios
+
+- `assets/`
+  - Incluye recursos visuales del proyecto.
+  - `fuentes/`: tipografías utilizadas en la interfaz.
+  - `iconos/`: íconos o imágenes de la app.
+
+- `database/`
+  - Contiene `mysql_face_storage.py`.
+  - `mysql_face_storage.py`: una capa adicional de almacenamiento MySQL para accesos y usuarios.
+  - Define tablas de `accesos` y métodos de consulta sobre éstos.
+
+- `gui/`
+  - Contiene `app.py`, que es un módulo alternativo/secondary de interfaz.
+  - `app.py`: app Tkinter con otro diseño y uso de `CameraHandler` y `FaceRecognizer` separado.
+  - Esta carpeta sirve como implementación alternativa de la interfaz gráfica.
+
+- `recognition/`
+  - Contiene `face_recognizer.py`.
+  - `face_recognizer.py`: otro módulo de reconocimiento facial que puede cargar desde archivos o base de datos.
+  - Proporciona métodos de comparación y carga de encodings.
+
+- `rostros/`
+  - Carpeta donde se guardan los rostros registrados del usuario.
+  - El sistema principal usa esta carpeta para almacenar imágenes de rostros como `locker1.jpg`, `locker2.jpg`, etc.
+
+## Cómo funciona cada módulo
+
+### `main.py`
+
+- Inicializa la GUI.
+- Crea la conexión a la base de datos si está disponible.
+- Usa `FaceRecognizer` para preparar detección facial.
+
+### `config.py`
+
+- `COLORES`: tema visual de la interfaz.
+- `FUENTES`: tipografías usadas en botones, títulos y textos.
+- `DB_CONFIG`: credenciales de MySQL.
+- `CAMERA_CONFIG`: resolución y FPS de la cámara.
+- `FACE_CONFIG`: carpeta de rostros y umbral de similitud.
+- `ADMIN_CONFIG`: configuración de administrador y cantidad total de lockers.
+- `GPIO_CONFIG`: configuración del control de relés para Raspberry Pi:
+  - `habilitado`: activa/desactiva el control GPIO (variable de entorno `GPIO_ENABLED`)
+  - `pines`: mapeo de lockers a pines GPIO (1→17, 2→27, 3→22, 4→23)
+  - `pulso_duracion`: duración del pulso de apertura (2 segundos por defecto)
+  - `active_high`: nivel de activación (False = señal baja)
+- `WINDOW_SIZE` / `WINDOW_FULLSCREEN`: define el tamaño de la ventana Tkinter.
+
+### `core.py`
+
+- La clase `Database` gestiona usuarios, guardado de imágenes, y estado de lockers.
+- La clase `FaceRecognizer` carga imágenes de `rostros/`, extrae encodings y reconoce caras.
+- La clase `Camera` arranca un hilo que captura frames de la webcam de manera continua.
+- La clase `LockerController` controla los relés de los 4 lockers:
+  - Inicializa los 4 pines GPIO configurados en `GPIO_CONFIG`
+  - Ejecuta pulsos de 2 segundos en un thread separado para no bloquear la interfaz
+  - Se activa automáticamente cuando se reconoce un rostro y se abre el locker correspondiente
+
+### `ui.py`
+
+- Construye la interfaz principal con botones, tarjetas de estado y vista de cámara.
+- `iniciar_acceso`: arranca el reconocimiento de rostro para abrir un locker.
+- `iniciar_registro`: captura un nuevo rostro y lo guarda en la base de datos y en la carpeta `rostros/`.
+- `abrir_admin`: muestra el panel de administración protegido por login.
+- El panel administrativo permite liberar lockers y ver el estado actual.
 
 ## Uso
 
+1. Instala las dependencias:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Ejecuta la aplicación:
+   ```bash
+   python main.py
+   ```
+3. Usa la cámara para registrar y abrir lockers.
+
+## Flujo de Reconocimiento y Activación de Lockers
+
+### Cuando se reconoce un rostro exitosamente:
+
+1. **Captura**: La aplicación captura el rostro mediante la cámara en tiempo real.
+2. **Comparación**: Se compara el rostro capturado con los rostros almacenados usando encodings.
+3. **Identificación**: Si la similitud es mayor al umbral, se identifica al usuario (ej: `locker1`).
+4. **Extracción de número**: Se extrae el número del locker (ej: 1 de `locker1`).
+5. **Activación GPIO**: Se envía un pulso de 2 segundos al relé del locker correspondiente:
+   - El pin GPIO se activa (señal baja porque `active_high=False`)
+   - Esto abre el solenoide/actuador del locker
+   - Tras 2 segundos, el pin se desactiva automáticamente
+6. **Confirmación**: Se muestra un mensaje de éxito al usuario.
+
+### Configuración de Hardware:
+
+Los 4 relés están conectados a los siguientes pines GPIO:
+- Locker 1: GPIO 17
+- Locker 2: GPIO 27
+- Locker 3: GPIO 22
+- Locker 4: GPIO 23
+
+Cada relé se activa con una señal baja (active_high=False), lo que es estándar para relés en Raspberry Pi.
+
+### Habilitación en Raspberry Pi:
+
+Para activar el control GPIO en Raspberry Pi, establece la variable de entorno antes de ejecutar:
+
 ```bash
+export GPIO_ENABLED=1
 python main.py
 ```
 
-### Flujo de Uso
+Sin esta variable, el sistema se ejecuta en **modo simulación** (útil para desarrollo en Windows/Linux sin Raspberry Pi).
 
-1. **Admin Login**: Los administradores acceden al panel de control sin ocupar lockers
-2. **Registrar Usuario**: Presiona "Registrar Nuevo Locker" → Se asigna automáticamente al primer locker libre (solo usuarios normales)
-3. **Acceder**: Presiona "Abrir Locker" → Se reconoce el rostro y abre el locker correspondiente
-4. **Admin Panel**: Panel de administración para liberar/asignar lockers específicos
+## Estructura de datos relevante
 
-## Configuración
+- Los rostros se guardan como archivos de imagen en `rostros/`.
+- La base de datos MySQL guarda usuarios, contraseñas, roles y registros de imagen.
+- El sistema asume un máximo de 4 lockers y asigna el siguiente locker libre automáticamente.
 
-Edita `config.py` para:
-- Credenciales MySQL
-- Resolución de cámara
-- Índice de cámara (0 = integrada)
-- Umbral de similitud de rostros
+## Notas finales
 
-## 🔌 Control de LEDs (Simulación de Lockers)
-
-El sistema integra control de **4 LEDs** conectados a los GPIO de Raspberry Pi 5:
-
-### Hardware Necesario
-- 4x LEDs (cualquier color)
-- 4x Resistencias 470Ω-1kΩ
-- Cables jumper y breadboard
-- Raspberry Pi 5 con GPIO habilitado
-
-### Conexión Rápida
-```
-GPIO 17 (Pin 11) → Resistencia → LED 1 → GND
-GPIO 27 (Pin 13) → Resistencia → LED 2 → GND
-GPIO 22 (Pin 15) → Resistencia → LED 3 → GND
-GPIO 23 (Pin 16) → Resistencia → LED 4 → GND
-```
-
-### Comportamiento de LEDs
-- 📍 **Al Registrar**: LED parpadea 2 segundos
-- 📍 **Al Abrir**: LED se enciende por 3 segundos
-- 📍 **Modo Simulación**: Si no está en Raspberry Pi, se simula en consola
-
-### Prueba Rápida
-```bash
-python3 test_leds.py
-```
-
-Para instrucciones **completas y detalladas**, consulta:
-- 📄 `CONEXION_LEDS.txt` - Instrucciones paso a paso
-- 📄 `DIAGRAMAS_LEDS.txt` - Diagramas visuales y esquemas
-
-## Características
-
-- ✅ Reconocimiento facial con face_recognition
-- ✅ Base de datos MySQL
-- ✅ Admin panel para gestión de usuarios
-- ✅ Control de lockers (libre/ocupado)
-- ✅ Registro de accesos
-- ✅ Interfaz limpia y moderna
+- Esta versión está limpia de Arduino y documentaciones externas.
+- El proyecto actual se enfoca en la aplicación Tkinter, el reconocimiento facial, la gestión de lockers y el control GPIO.
+- El control GPIO con gpiozero es totalmente compatible con Raspberry Pi y se ejecuta en modo simulación en otros SO.
+- Si necesitas una versión más ligera, `face_recognition_cv2.py` permite que el sistema funcione sin `face-recognition` ni `dlib`.
+- Los pulsos de apertura se ejecutan en threads separados para no bloquear la interfaz principal.
+- El sistema está optimizado para ejecutarse en Raspberry Pi con pantalla táctil de 7 pulgadas.
 
