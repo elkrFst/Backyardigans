@@ -132,20 +132,42 @@ class Database:
             return 0
     
     def listar_lockers(self, total=4):
-        """Devuelve estado de lockers (ocupado/libre) - Solo usuarios normales tienen lockers"""
+        """Devuelve estado de lockers por nombre lockerN - Solo usuarios normales tienen lockers"""
         try:
             # Solo usuarios con rol 'usuario' pueden tener lockers asignados
             usuarios_normales = [u for u in self.listar_usuarios_detallados() if u['rol'] == 'usuario']
+            usuarios_por_locker = {}
+            usuarios_sin_numero = []
+
+            for usuario in usuarios_normales:
+                nombre = usuario['nombre_usuario']
+                if nombre.startswith('locker'):
+                    try:
+                        locker_num = int(nombre.replace('locker', '', 1))
+                        if 1 <= locker_num <= total:
+                            usuarios_por_locker[locker_num] = nombre
+                            continue
+                    except ValueError:
+                        pass
+                usuarios_sin_numero.append(nombre)
             
             lockers = []
             for i in range(1, total + 1):
-                if i <= len(usuarios_normales):
-                    usr = usuarios_normales[i - 1]['nombre_usuario']
+                if i in usuarios_por_locker:
+                    usr = usuarios_por_locker[i]
                     estado = 'Ocupado'
                 else:
                     usr = None
                     estado = 'Libre'
                 lockers.append({'locker': i, 'usuario': usr, 'estado': estado})
+
+            for usuario in usuarios_sin_numero:
+                for locker in lockers:
+                    if locker['estado'] == 'Libre':
+                        locker['usuario'] = usuario
+                        locker['estado'] = 'Ocupado'
+                        break
+
             return lockers
         except Error:
             return []
@@ -156,15 +178,12 @@ class Database:
             raise ValueError(f"Locker inválido: {locker_num}")
         
         try:
-            # Obtener solo usuarios normales (no admins)
-            usuarios_normales = [u for u in self.listar_usuarios_detallados() 
-                               if u['rol'] == 'usuario']
-            
-            if locker_num > len(usuarios_normales):
+            lockers = self.listar_lockers(total)
+            locker = lockers[locker_num - 1]
+            if locker['estado'] != 'Ocupado' or not locker['usuario']:
                 return False
             
-            usuario_nombre = usuarios_normales[locker_num - 1]['nombre_usuario']
-            return self.eliminar_usuario(usuario_nombre) > 0
+            return self.eliminar_usuario(locker['usuario']) > 0
         except Error:
             return False
     

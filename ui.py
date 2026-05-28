@@ -61,22 +61,21 @@ class UIApp:
         # Control de distancia
         self.ultima_advertencia_distancia = 0  # Timestamp de la última advertencia
         self.advertencia_activa = False
+
+        # Guía de voz en menú principal cuando alguien se acerca
+        self.ultima_indicacion_menu = 0
+        self.intervalo_indicacion_menu = 120
         
         # Configurar ventana
         self.root.title("Sistema de Lockers - Reconocimiento Facial")
         self.root.geometry(WINDOW_SIZE)
-        if WINDOW_FULLSCREEN:
-            self.root.attributes('-fullscreen', True)
+        self.root.bind_all('<Escape>', self._salir_pantalla_completa)
         self.root.configure(bg=COLORES["fondo"])
         self.root.protocol("WM_DELETE_WINDOW", self.cerrar)
-        
-        # Mostrar ventana inmediatamente
-        self.root.update()
-        self.root.deiconify()
-        
+
         # Estilos
         self._configurar_estilos()
-        
+
         self.mostrar_menu_principal()
     
     def _configurar_estilos(self):
@@ -96,18 +95,36 @@ class UIApp:
         style.configure('Status.TLabel', background=COLORES['panel_sec'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
         style.configure('Section.TLabel', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
         
-        style.configure('Primary.TButton', font=FUENTES['boton'], padding=12, background=COLORES['boton_principal'], foreground=COLORES['texto'])
+        style.configure('Primary.TButton', font=FUENTES['boton'], padding=8, background=COLORES['boton_principal'], foreground=COLORES['texto'])
         style.map('Primary.TButton', background=[('active', COLORES['boton_principal_hover'])])
         
-        style.configure('Secondary.TButton', font=FUENTES['boton'], padding=12, background=COLORES['boton_secundario'], foreground=COLORES['texto'])
+        style.configure('Secondary.TButton', font=FUENTES['boton'], padding=8, background=COLORES['boton_secundario'], foreground=COLORES['texto'])
         style.map('Secondary.TButton', background=[('active', COLORES['boton_secundario_hover'])])
         
-        style.configure('Small.TButton', font=FUENTES['boton_pequeno'], padding=8, background=COLORES['boton_secundario'], foreground=COLORES['texto'])
+        style.configure('Small.TButton', font=FUENTES['boton_pequeno'], padding=5, background=COLORES['boton_secundario'], foreground=COLORES['texto'])
         style.map('Small.TButton', background=[('active', COLORES['boton_secundario_hover'])])
         
         style.configure('TNotebook', background=COLORES['fondo'], borderwidth=0)
-        style.configure('TNotebook.Tab', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['boton'], padding=[12, 8])
+        style.configure('TNotebook.Tab', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['boton'], padding=[10, 5])
         style.map('TNotebook.Tab', background=[('selected', COLORES['boton_principal'])], foreground=[('selected', COLORES['texto'])])
+
+    def _salir_pantalla_completa(self, event=None):
+        """Quita pantalla completa de la ventana activa y de la ventana principal."""
+        try:
+            if event is not None:
+                event.widget.winfo_toplevel().attributes('-fullscreen', False)
+            self.root.attributes('-fullscreen', False)
+            for ventana in self.root.winfo_children():
+                if isinstance(ventana, tk.Toplevel) and ventana.winfo_exists():
+                    ventana.attributes('-fullscreen', False)
+        except tk.TclError:
+            pass
+
+    def _preparar_ventana_fullscreen(self, ventana):
+        """Aplica pantalla completa y permite salir con Esc."""
+        ventana.bind('<Escape>', lambda event: ventana.attributes('-fullscreen', False))
+        if WINDOW_FULLSCREEN:
+            ventana.after(100, lambda: ventana.winfo_exists() and ventana.attributes('-fullscreen', True))
     
     def _hablar(self, texto):
         """Pronuncia un texto usando síntesis de voz global en un hilo separado"""
@@ -151,6 +168,15 @@ class UIApp:
             self._hablar("Aléjate de la cámara")
             self._emitir_pitido()
             self.ultima_advertencia_distancia = tiempo_actual
+
+    def _indicar_opciones_menu_si_corresponde(self):
+        """Guía al usuario en el menú principal como máximo una vez cada 2 minutos."""
+        tiempo_actual = time.time()
+        if tiempo_actual - self.ultima_indicacion_menu < self.intervalo_indicacion_menu:
+            return
+
+        self.ultima_indicacion_menu = tiempo_actual
+        self._hablar("Presione registrar locker para empezar. Presione abrir locker si ya tiene uno registrado.")
     
     def _esta_demasiado_cerca(self, frame, rostros):
         """Calcula si el rostro está demasiado cerca usando el tamaño del bounding box."""
@@ -165,6 +191,25 @@ class UIApp:
             if altura_rostro > alto * 0.55 or ancho_rostro > ancho * 0.55 or area_rostro > area_frame * 0.24:
                 return True
         return False
+
+    def _obtener_locker_de_usuario(self, nombre_usuario):
+        """Devuelve el número de locker asociado a un usuario registrado."""
+        nombre_limpio = nombre_usuario.replace('.jpg', '').replace('.png', '')
+        if nombre_limpio.startswith('locker'):
+            try:
+                return int(nombre_limpio.replace('locker', '', 1))
+            except ValueError:
+                pass
+
+        try:
+            lockers = self.db.listar_lockers(ADMIN_CONFIG['total_lockers'])
+            for locker in lockers:
+                if locker.get('usuario') == nombre_limpio:
+                    return locker.get('locker')
+        except Exception as e:
+            print(f"[ERROR] Buscando locker para {nombre_limpio}: {e}")
+
+        return None
     
     def limpiar_frame(self):
         """Elimina todos los widgets"""
@@ -179,48 +224,52 @@ class UIApp:
         
         try:
             header = ttk.Frame(self.root, style='Card.TFrame')
-            header.pack(fill='x', padx=10, pady=(10, 5))
+            header.pack(fill='x', padx=6, pady=(6, 3))
             
             title_frame = ttk.Frame(header, style='Card.TFrame')
-            title_frame.pack(side='left', fill='x', expand=True, padx=(10, 0), pady=10)
+            title_frame.pack(side='left', fill='x', expand=True, padx=(8, 0), pady=6)
             ttk.Label(title_frame, text="Smart Locker", style='Header.TLabel').pack(anchor='w')
-            ttk.Label(title_frame, text="Abre tu locker con tu rostro de forma rápida y segura.", style='Subtitle.TLabel').pack(anchor='w', pady=(4, 0))
+            ttk.Label(title_frame, text="Abre tu locker con tu rostro.", style='Subtitle.TLabel').pack(anchor='w', pady=(2, 0))
             
             action_frame = ttk.Frame(header, style='Card.TFrame')
-            action_frame.pack(side='right', padx=10, pady=10)
+            action_frame.pack(side='right', padx=8, pady=6)
             ttk.Button(action_frame, text="Panel administrador", command=lambda: (self._hablar('Panel administrador'), self.abrir_admin()), style='Small.TButton').pack()
             
             contenido = ttk.Frame(self.root, style='Card.TFrame')
-            contenido.pack(fill='both', expand=True, padx=10, pady=5)
+            contenido.pack(fill='both', expand=True, padx=6, pady=3)
             
             video_frame = ttk.Frame(contenido, style='Card.TFrame')
-            video_frame.pack(side='left', fill='both', expand=True, padx=(0, 5), pady=5)
-            ttk.Label(video_frame, text="Vista en vivo", style='Section.TLabel').pack(anchor='w', padx=12, pady=(12, 4))
+            video_frame.pack(side='left', fill='both', expand=True, padx=(0, 4), pady=3)
+            ttk.Label(video_frame, text="Vista en vivo", style='Section.TLabel').pack(anchor='w', padx=8, pady=(6, 2))
             video_card = ttk.Frame(video_frame, style='Card.TFrame')
-            video_card.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+            video_card.pack(fill='both', expand=True, padx=6, pady=(0, 6))
             self.label_video = ttk.Label(video_card, background=COLORES['info_bg'], relief='flat')
-            self.label_video.pack(fill='both', expand=True, padx=12, pady=12)
+            self.label_video.pack(fill='both', expand=True, padx=6, pady=6)
             
             info_frame = ttk.Frame(contenido, style='Card.TFrame')
-            info_frame.pack(side='right', fill='y', ipadx=10, ipady=10, padx=(5, 0), pady=5)
-            ttk.Label(info_frame, text="Estado del sistema", style='Section.TLabel').pack(anchor='w', padx=12, pady=(12, 4))
+            info_frame.pack(side='right', fill='y', ipadx=6, ipady=4, padx=(4, 0), pady=3)
+            ttk.Label(info_frame, text="Estado del sistema", style='Section.TLabel').pack(anchor='w', padx=8, pady=(6, 2))
             
-            self.lbl_estado = ttk.Label(info_frame, text="Elige una opción para comenzar.", style='Info.TLabel', justify='left', wraplength=280)
-            self.lbl_estado.pack(fill='x', padx=12, pady=(0, 10))
+            self.lbl_estado = ttk.Label(info_frame, text="Elige una opción para comenzar.", style='Info.TLabel', justify='left', wraplength=240)
+            self.lbl_estado.pack(fill='x', padx=8, pady=(0, 6))
             
             status_card = ttk.Frame(info_frame, style='Card.TFrame')
-            status_card.pack(fill='x', padx=12, pady=(0, 10))
-            self.lbl_resumen = ttk.Label(status_card, text="Cargando estado de lockers...", style='Status.TLabel', justify='left', wraplength=260)
-            self.lbl_resumen.pack(fill='x', padx=10, pady=10)
+            status_card.pack(fill='x', padx=8, pady=(0, 6))
+            self.lbl_resumen = ttk.Label(status_card, text="Cargando estado de lockers...", style='Status.TLabel', justify='left', wraplength=230)
+            self.lbl_resumen.pack(fill='x', padx=8, pady=6)
             
             botones_frame = ttk.Frame(info_frame, style='Card.TFrame')
-            botones_frame.pack(fill='x', padx=12, pady=10)
-            ttk.Button(botones_frame, text="Abrir mi locker", command=lambda: (self._hablar('Abrir mi locker'), self.iniciar_acceso()), style='Primary.TButton').pack(fill='x', pady=6)
-            ttk.Button(botones_frame, text="Registrar rostro", command=lambda: (self._hablar('Registrar rostro'), self.iniciar_registro()), style='Secondary.TButton').pack(fill='x', pady=6)
+            botones_frame.pack(fill='x', padx=8, pady=6)
+            ttk.Button(botones_frame, text="Abrir mi locker", command=lambda: (self._hablar('Abrir mi locker'), self.iniciar_acceso()), style='Primary.TButton').pack(fill='x', pady=3)
+            ttk.Button(botones_frame, text="Registrar rostro", command=lambda: (self._hablar('Registrar rostro'), self.iniciar_registro()), style='Secondary.TButton').pack(fill='x', pady=3)
             
-            ttk.Label(info_frame, text="Consejo: mantén el rostro centrado y evita sombras.", style='Subtitle.TLabel', wraplength=280, justify='left').pack(fill='x', padx=12, pady=(12, 0))
+            ttk.Label(info_frame, text="Rostro centrado, sin sombras.", style='Subtitle.TLabel', wraplength=240, justify='left').pack(fill='x', padx=8, pady=(6, 0))
             
             self._actualizar_resumen_lockers()
+            self.root.update_idletasks()
+            if WINDOW_FULLSCREEN:
+                self.root.attributes('-fullscreen', True)
+                self.root.update()
             self._iniciar_preview_camara()
             print("[UI] ✅ Menú principal listo")
         except Exception as e:
@@ -284,6 +333,8 @@ class UIApp:
                 if self.frame_count % self.detect_interval == 0:
                     try:
                         rostros = self.face_recognizer.detectar_rostros(frame)
+                        if rostros:
+                            self._indicar_opciones_menu_si_corresponde()
                         for (top, right, bottom, left) in rostros:
                             cv2.rectangle(frame_rgb, (left, top), (right, bottom), (0, 255, 0), 2)
                     except:
@@ -291,7 +342,7 @@ class UIApp:
                 
                 # Redimensionar imagen UNA SOLA VEZ
                 imagen = Image.fromarray(frame_rgb)
-                imagen.thumbnail((624, 468), Image.Resampling.LANCZOS)
+                imagen.thumbnail((520, 300), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image=imagen)
                 
                 self.label_video.config(image=photo)
@@ -320,27 +371,27 @@ class UIApp:
             self.camera.iniciar()
         
         header = ttk.Frame(self.root, style='Card.TFrame')
-        header.pack(fill='x', padx=10, pady=(10, 5))
-        ttk.Label(header, text="Abrir locker", style='Header.TLabel').pack(side='left', padx=12, pady=10)
-        ttk.Button(header, text="Volver", command=lambda: (self._hablar('Volver'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(side='right', padx=12, pady=10)
+        header.pack(fill='x', padx=6, pady=(6, 3))
+        ttk.Label(header, text="Abrir locker", style='Header.TLabel').pack(side='left', padx=8, pady=6)
+        ttk.Button(header, text="Volver", command=lambda: (self._hablar('Volver'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(side='right', padx=8, pady=6)
         
-        self.lbl_estado = ttk.Label(self.root, text="Acércate a la cámara. Tu locker se abrirá automáticamente cuando te reconozca.", style='Info.TLabel', justify='center', wraplength=600)
-        self.lbl_estado.pack(fill='x', padx=20, pady=(0, 10))
+        self.lbl_estado = ttk.Label(self.root, text="Acércate a la cámara. Tu locker se abrirá cuando te reconozca.", style='Info.TLabel', justify='center', wraplength=620)
+        self.lbl_estado.pack(fill='x', padx=10, pady=(0, 6))
         
         # Contenedor principal: video a la izquierda + botones a la derecha
         contenedor = ttk.Frame(self.root)
-        contenedor.pack(fill='both', expand=True, padx=10, pady=10)
+        contenedor.pack(fill='both', expand=True, padx=6, pady=6)
         
         # Video a la izquierda
         video_frame = ttk.Frame(contenedor)
-        video_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        video_frame.pack(side='left', fill='both', expand=True, padx=(0, 6))
         self.label_video = ttk.Label(video_frame, background=COLORES['info_bg'], relief='flat')
         self.label_video.pack(fill='both', expand=True)
         
         # Botones a la derecha (vertical)
         botones = ttk.Frame(contenedor)
         botones.pack(side='right', fill='y')
-        ttk.Button(botones, text="Cancelar", command=lambda: (self._hablar('Cancelar'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(fill='x', padx=6, pady=6)
+        ttk.Button(botones, text="Cancelar", command=lambda: (self._hablar('Cancelar'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(fill='x', padx=4, pady=4)
         
         self._reconocer_acceso()
     
@@ -376,22 +427,24 @@ class UIApp:
                         usuario = self.db.obtener_usuario_por_nombre(nombre_limpio)
                         
                         if usuario:
-                            locker_num = int(nombre_limpio.replace('locker', ''))
-                            
-                            # ========== ACTIVAR RELÉ DEL LOCKER ==========
-                            self.locker_controller.activar_locker(locker_num)
-                            # ============================================
-                            
-                            self.lbl_estado.config(text=f"¡Perfecto! Se encontró tu locker {locker_num}.")
-                            self._hablar(f"Locker {locker_num} abierto")
-                            messagebox.showinfo("¡Acceso concedido!", f"Locker {locker_num} abierto.")
-                            self.mostrar_menu_principal()
-                            return
+                            locker_num = self._obtener_locker_de_usuario(nombre_limpio)
+                            if locker_num is None:
+                                self.lbl_estado.config(text="Rostro reconocido, pero no se encontró un locker asignado.")
+                            else:
+                                # ========== ACTIVAR RELÉ DEL LOCKER ==========
+                                self.locker_controller.activar_locker(locker_num)
+                                # ============================================
+
+                                self.lbl_estado.config(text=f"¡Perfecto! Se encontró tu locker {locker_num}.")
+                                self._hablar(f"Locker {locker_num} abierto")
+                                messagebox.showinfo("¡Acceso concedido!", f"Locker {locker_num} abierto.")
+                                self.mostrar_menu_principal()
+                                return
                     else:
                         self.lbl_estado.config(text="Buscando rostro... mantén tu cara frente a la cámara.")
                 
                 imagen = Image.fromarray(frame_rgb)
-                imagen.thumbnail((450, 350), Image.Resampling.LANCZOS)
+                imagen.thumbnail((560, 280), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image=imagen)
                 self.label_video.config(image=photo)
                 self.label_video.image = photo
@@ -424,28 +477,28 @@ class UIApp:
         self.limpiar_frame()
         
         header = ttk.Frame(self.root, style='Card.TFrame')
-        header.pack(fill='x', padx=10, pady=(10, 5))
-        ttk.Label(header, text="Registrar nuevo rostro", style='Header.TLabel').pack(side='left', padx=12, pady=10)
-        ttk.Button(header, text="Volver", command=lambda: (self._hablar('Volver'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(side='right', padx=12, pady=10)
+        header.pack(fill='x', padx=6, pady=(6, 3))
+        ttk.Label(header, text="Registrar rostro", style='Header.TLabel').pack(side='left', padx=8, pady=6)
+        ttk.Button(header, text="Volver", command=lambda: (self._hablar('Volver'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(side='right', padx=8, pady=6)
         
-        self.lbl_estado = ttk.Label(self.root, text=f"Vamos a configurar tu Locker {locker_asignado}. Mantén la cara centrada y sonríe naturalmente.", style='Info.TLabel', justify='center', wraplength=700)
-        self.lbl_estado.pack(fill='x', padx=20, pady=(0, 10))
+        self.lbl_estado = ttk.Label(self.root, text=f"Locker {locker_asignado}: mantén la cara centrada.", style='Info.TLabel', justify='center', wraplength=620)
+        self.lbl_estado.pack(fill='x', padx=10, pady=(0, 6))
         
         # Contenedor principal: video a la izquierda + botones a la derecha
         contenedor = ttk.Frame(self.root)
-        contenedor.pack(fill='both', expand=True, padx=10, pady=10)
+        contenedor.pack(fill='both', expand=True, padx=6, pady=6)
         
         # Video a la izquierda
         video_frame = ttk.Frame(contenedor)
-        video_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        video_frame.pack(side='left', fill='both', expand=True, padx=(0, 6))
         self.label_video = ttk.Label(video_frame, background=COLORES['info_bg'], relief='flat')
         self.label_video.pack(fill='both', expand=True)
         
         # Botones a la derecha (vertical)
         botones = ttk.Frame(contenedor)
         botones.pack(side='right', fill='y')
-        ttk.Button(botones, text="Capturar rostro", command=lambda: (self._hablar('Capturar rostro'), self._capturar_registro()), style='Primary.TButton').pack(fill='x', padx=6, pady=6)
-        ttk.Button(botones, text="Cancelar", command=lambda: (self._hablar('Cancelar'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(fill='x', padx=6, pady=6)
+        ttk.Button(botones, text="Capturar rostro", command=lambda: (self._hablar('Capturar rostro'), self._capturar_registro()), style='Primary.TButton').pack(fill='x', padx=4, pady=4)
+        ttk.Button(botones, text="Cancelar", command=lambda: (self._hablar('Cancelar'), self.mostrar_menu_principal()), style='Secondary.TButton').pack(fill='x', padx=4, pady=4)
         
         self.captura_disponible = False
         self.nombre_registro = nombre_usuario
@@ -486,7 +539,7 @@ class UIApp:
                     self.lbl_estado.config(text="No detecto un rostro claro. Ajusta tu posición y prueba otra vez.")
                 
                 imagen = Image.fromarray(frame_rgb)
-                imagen.thumbnail((450, 350), Image.Resampling.LANCZOS)
+                imagen.thumbnail((560, 280), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(image=imagen)
                 self.label_video.config(image=photo)
                 self.label_video.image = photo
@@ -505,22 +558,25 @@ class UIApp:
             return
         
         try:
+            # Asociar rostro antes de crear el usuario para evitar registros incompletos.
+            encoding = self.face_recognizer.asociar_rostro(self.nombre_registro, self.frame_actual_registro)
+            if encoding is None:
+                messagebox.showwarning("Atención", "No se pudo extraer el rostro. Ajusta tu posición e inténtalo otra vez.")
+                return
+
             # Ahora sí guardar el usuario en BD (solo cuando se captura con éxito)
             usuario_id = self.db.guardar_usuario(self.nombre_registro, "1234", 'usuario')
             if not usuario_id:
                 messagebox.showerror("Error", "No se pudo guardar el usuario en la base de datos.")
                 return
             
-            # Asociar rostro
-            self.face_recognizer.asociar_rostro(self.nombre_registro, self.frame_actual_registro)
-            
             # Guardar imagen en BD
             ret, buffer = cv2.imencode('.jpg', self.frame_actual_registro)
             if ret:
                 self.db.guardar_imagen(usuario_id, buffer.tobytes())
-            
-            
-            messagebox.showinfo("¡Listo!", f"Locker {self.locker_asignado} está registrado y listo para usar.")
+            self.locker_controller.activar_locker(self.locker_asignado)
+
+            messagebox.showinfo("¡Listo!", f"Locker {self.locker_asignado} está registrado, abierto y listo para usar.")
             
             # Recargar rostros conocidos
             self.encodings_conocidos, self.nombres_conocidos = self.face_recognizer.cargar_todos()
@@ -533,29 +589,30 @@ class UIApp:
         """Abre panel de administración con login personalizado"""
         login_win = tk.Toplevel(self.root)
         login_win.title("Acceso administrador")
-        login_win.geometry("380x280")
+        login_win.geometry("420x230")
         login_win.resizable(False, False)
         login_win.configure(bg=COLORES['fondo'])
+        self._preparar_ventana_fullscreen(login_win)
 
         login_win.transient(self.root)
         login_win.grab_set()
 
-        ttk.Label(login_win, text="Ingreso administrador", style='Header.TLabel').pack(pady=(16, 4))
-        ttk.Label(login_win, text="Ingresa tus credenciales para acceder al panel de control.", style='Subtitle.TLabel', wraplength=300, justify='center').pack(padx=16, pady=(0, 12))
+        ttk.Label(login_win, text="Ingreso administrador", style='Header.TLabel').pack(pady=(8, 2))
+        ttk.Label(login_win, text="Ingresa tus credenciales.", style='Subtitle.TLabel', wraplength=300, justify='center').pack(padx=12, pady=(0, 6))
 
         frame = ttk.Frame(login_win, style='Card.TFrame')
-        frame.pack(fill='both', expand=True, padx=20, pady=(0, 16))
+        frame.pack(fill='both', expand=True, padx=16, pady=(0, 10))
 
         # Campo usuario
-        ttk.Label(frame, text="Usuario:").grid(row=0, column=0, sticky='w', padx=10, pady=5)
+        ttk.Label(frame, text="Usuario:").grid(row=0, column=0, sticky='w', padx=8, pady=4)
         entry_usuario = ttk.Entry(frame, font=FUENTES['normal'])
-        entry_usuario.grid(row=0, column=1, sticky='ew', padx=10, pady=5)
+        entry_usuario.grid(row=0, column=1, sticky='ew', padx=8, pady=4)
         entry_usuario.focus()  # Focus en usuario
 
         # Campo contraseña
-        ttk.Label(frame, text="Contraseña:").grid(row=1, column=0, sticky='w', padx=10, pady=5)
+        ttk.Label(frame, text="Contraseña:").grid(row=1, column=0, sticky='w', padx=8, pady=4)
         entry_pass = ttk.Entry(frame, font=FUENTES['normal'], show='*')
-        entry_pass.grid(row=1, column=1, sticky='ew', padx=10, pady=5)
+        entry_pass.grid(row=1, column=1, sticky='ew', padx=8, pady=4)
 
         frame.grid_columnconfigure(1, weight=1)
 
@@ -575,7 +632,7 @@ class UIApp:
                     return
 
                 login_win.destroy()
-                AdminWindow(self.root, self.db, self.camera, self.face_recognizer)
+                AdminWindow(self.root, self.db, self.camera, self.face_recognizer, self.locker_controller)
 
             except Exception as e:
                 messagebox.showerror("Error", f"Error de conexión: {e}", parent=login_win)
@@ -585,7 +642,7 @@ class UIApp:
 
         # Botones
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=2, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=6)
 
         ttk.Button(btn_frame, text="Ingresar", command=lambda: (self._hablar('Ingresar'), login()), style='Primary.TButton').pack(side='left', padx=5)
         ttk.Button(btn_frame, text="Cancelar", command=lambda: (self._hablar('Cancelar'), cancelar()), style='Secondary.TButton').pack(side='left', padx=5)
@@ -615,25 +672,27 @@ class UIApp:
 class AdminWindow(tk.Toplevel):
     """Panel de administración de usuarios"""
     
-    def __init__(self, parent, db, camera, face_recognizer):
+    def __init__(self, parent, db, camera, face_recognizer, locker_controller=None):
         super().__init__(parent)
         self.title("Panel de Administración")
-        self.geometry("700x380")
+        self.geometry(WINDOW_SIZE)
         self.configure(bg=COLORES["fondo"])
+        self._preparar_ventana_fullscreen(self)
         self.db = db
         self.camera = camera
         self.face_recognizer = face_recognizer
+        self.locker_controller = locker_controller
         
         header = ttk.Frame(self, style='Card.TFrame')
-        header.pack(fill='x', padx=5, pady=5)
+        header.pack(fill='x', padx=4, pady=4)
         title_box = ttk.Frame(header, style='Card.TFrame')
-        title_box.pack(side='left', fill='x', expand=True, padx=5, pady=5)
+        title_box.pack(side='left', fill='x', expand=True, padx=5, pady=4)
         ttk.Label(title_box, text="Panel de administración", style='Header.TLabel').pack(anchor='w')
-        ttk.Label(title_box, text="Gestiona usuarios y lockers.", style='Subtitle.TLabel').pack(anchor='w', pady=(2, 0))
-        ttk.Button(header, text="Cerrar", command=lambda: (self._hablar_admin('Cerrar'), self.destroy()), style='Secondary.TButton').pack(side='right', padx=5, pady=5)
+        ttk.Label(title_box, text="Usuarios y lockers.", style='Subtitle.TLabel').pack(anchor='w', pady=(1, 0))
+        ttk.Button(header, text="Cerrar", command=lambda: (self._hablar_admin('Cerrar'), self.destroy()), style='Secondary.TButton').pack(side='right', padx=5, pady=4)
         
         notebook = ttk.Notebook(self)
-        notebook.pack(fill='both', expand=True, padx=5, pady=5)
+        notebook.pack(fill='both', expand=True, padx=4, pady=4)
         
         # Pestaña: Usuarios
         usuarios_frame = ttk.Frame(notebook)
@@ -661,57 +720,77 @@ class AdminWindow(tk.Toplevel):
         # Ejecutar en hilo separado para no bloquear la UI
         hilo = threading.Thread(target=hablar_thread, daemon=True)
         hilo.start()
+
+    def _preparar_ventana_fullscreen(self, ventana):
+        """Aplica pantalla completa y permite salir con Esc."""
+        ventana.bind('<Escape>', lambda event: ventana.attributes('-fullscreen', False))
+        if WINDOW_FULLSCREEN:
+            ventana.after(100, lambda: ventana.winfo_exists() and ventana.attributes('-fullscreen', True))
+
+    def _esta_demasiado_cerca(self, frame, rostros):
+        """Calcula si el rostro está demasiado cerca usando el tamaño del bounding box."""
+        if not rostros or frame is None:
+            return False
+        alto, ancho = frame.shape[:2]
+        for (top, right, bottom, left) in rostros:
+            altura_rostro = bottom - top
+            ancho_rostro = right - left
+            area_rostro = altura_rostro * ancho_rostro
+            area_frame = alto * ancho
+            if altura_rostro > alto * 0.55 or ancho_rostro > ancho * 0.55 or area_rostro > area_frame * 0.24:
+                return True
+        return False
     
     def _crear_tab_usuarios(self, parent):
         """Crea la pestaña de gestión de usuarios"""
         list_frame = ttk.Frame(parent, style='Card.TFrame')
-        list_frame.pack(side='left', fill='both', expand=True, padx=5, pady=5)
+        list_frame.pack(side='left', fill='both', expand=True, padx=4, pady=4)
         
-        ttk.Label(list_frame, text="Usuarios registrados", style='Section.TLabel').pack(anchor='w', pady=(0, 4), padx=2)
+        ttk.Label(list_frame, text="Usuarios registrados", style='Section.TLabel').pack(anchor='w', pady=(0, 2), padx=2)
         
         self.listbox_usuarios = tk.Listbox(list_frame, font=FUENTES['normal'], bd=0, highlightthickness=1, relief='solid')
         self.listbox_usuarios.pack(fill='both', expand=True, padx=2, pady=1)
         
         btn_frame = ttk.Frame(list_frame, style='Card.TFrame')
-        btn_frame.pack(fill='x', pady=4, padx=2)
+        btn_frame.pack(fill='x', pady=2, padx=2)
         ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_usuarios()), style='Small.TButton').pack(side='left', padx=1)
         ttk.Button(btn_frame, text="Eliminar", command=lambda: (self._hablar_admin('Eliminar'), self._eliminar_usuario()), style='Secondary.TButton').pack(side='left', padx=1)
         
         form_frame = ttk.LabelFrame(parent, text="Agregar administrador", style='Card.TFrame')
-        form_frame.pack(side='right', fill='both', expand=True, padx=5, pady=5)
+        form_frame.pack(side='right', fill='both', expand=True, padx=4, pady=4)
         
-        ttk.Label(form_frame, text="Usuario:", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=5, pady=4)
+        ttk.Label(form_frame, text="Usuario:", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=4, pady=3)
         self.entry_usuario = ttk.Entry(form_frame, font=FUENTES['normal'])
-        self.entry_usuario.grid(row=0, column=1, sticky='ew', padx=5, pady=4)
+        self.entry_usuario.grid(row=0, column=1, sticky='ew', padx=4, pady=3)
         
-        ttk.Label(form_frame, text="Contraseña:", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=5, pady=4)
+        ttk.Label(form_frame, text="Contraseña:", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=4, pady=3)
         self.entry_pass = ttk.Entry(form_frame, show='*', font=FUENTES['normal'])
-        self.entry_pass.grid(row=1, column=1, sticky='ew', padx=5, pady=4)
+        self.entry_pass.grid(row=1, column=1, sticky='ew', padx=4, pady=3)
         
-        ttk.Label(form_frame, text="Rol:", style='Subtitle.TLabel').grid(row=2, column=0, sticky='w', padx=5, pady=4)
+        ttk.Label(form_frame, text="Rol:", style='Subtitle.TLabel').grid(row=2, column=0, sticky='w', padx=4, pady=3)
         rol_label = ttk.Label(form_frame, text="administrador", style='Section.TLabel')
-        rol_label.grid(row=2, column=1, sticky='w', padx=5, pady=4)
+        rol_label.grid(row=2, column=1, sticky='w', padx=4, pady=3)
         
         form_frame.grid_columnconfigure(1, weight=1)
         
-        ttk.Button(form_frame, text="Guardar administrador", command=lambda: (self._hablar_admin('Guardar administrador'), self._guardar_usuario()), style='Primary.TButton').grid(row=3, column=0, columnspan=2, sticky='ew', padx=5, pady=6)
+        ttk.Button(form_frame, text="Guardar administrador", command=lambda: (self._hablar_admin('Guardar administrador'), self._guardar_usuario()), style='Primary.TButton').grid(row=3, column=0, columnspan=2, sticky='ew', padx=4, pady=4)
         
         self._refrescar_usuarios()
     
     def _crear_tab_lockers(self, parent):
         """Crea la pestaña de gestión de lockers"""
         info_frame = ttk.Frame(parent, style='Card.TFrame')
-        info_frame.pack(fill='both', expand=True, padx=5, pady=5)
-        ttk.Label(info_frame, text="Lockers disponibles", style='Section.TLabel').pack(anchor='w', pady=(0, 4), padx=2)
+        info_frame.pack(fill='both', expand=True, padx=4, pady=4)
+        ttk.Label(info_frame, text="Lockers disponibles", style='Section.TLabel').pack(anchor='w', pady=(0, 2), padx=2)
         
-        self.listbox_lockers = tk.Listbox(info_frame, font=FUENTES['normal'], height=8, bd=0, highlightthickness=1, relief='solid')
+        self.listbox_lockers = tk.Listbox(info_frame, font=FUENTES['normal'], height=7, bd=0, highlightthickness=1, relief='solid')
         self.listbox_lockers.pack(fill='both', expand=True, padx=2, pady=1)
         
         btn_frame = ttk.Frame(info_frame, style='Card.TFrame')
-        btn_frame.pack(fill='x', padx=2, pady=4)
+        btn_frame.pack(fill='x', padx=2, pady=2)
         ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_lockers()), style='Small.TButton').pack(side='left', padx=1)
         ttk.Button(btn_frame, text="Liberar", command=lambda: (self._hablar_admin('Liberar seleccionado'), self._liberar_locker_seleccionado()), style='Secondary.TButton').pack(side='left', padx=1)
-        ttk.Button(btn_frame, text="Asignar", command=self._asignar_locker_manual, style='Primary.TButton').pack(side='left', padx=1)
+        ttk.Button(btn_frame, text="Asignar y capturar", command=self._asignar_locker_manual, style='Primary.TButton').pack(side='left', padx=1)
         
         self._refrescar_lockers()
     
@@ -791,25 +870,26 @@ class AdminWindow(tk.Toplevel):
         # Crear ventana para pedir locker y nombre
         dialog = tk.Toplevel(self)
         dialog.title("Asignar Locker")
-        dialog.geometry("300x200")
+        dialog.geometry("360x220")
         dialog.resizable(False, False)
         dialog.configure(bg=COLORES['fondo'])
+        self._preparar_ventana_fullscreen(dialog)
         dialog.transient(self)
         dialog.grab_set()
         
-        ttk.Label(dialog, text="Asignar un locker", style='Header.TLabel').pack(pady=(16, 12))
+        ttk.Label(dialog, text="Asignar locker", style='Header.TLabel').pack(pady=(8, 4))
         
         frame = ttk.Frame(dialog, style='Card.TFrame')
-        frame.pack(fill='both', expand=True, padx=20, pady=(0, 16))
+        frame.pack(fill='both', expand=True, padx=16, pady=(0, 10))
         
-        ttk.Label(frame, text="Locker (1-4):", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=10, pady=8)
+        ttk.Label(frame, text="Locker (1-4):", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=8, pady=5)
         entry_locker = ttk.Spinbox(frame, from_=1, to=ADMIN_CONFIG['total_lockers'], width=10, font=FUENTES['normal'])
         entry_locker.set(1)
-        entry_locker.grid(row=0, column=1, sticky='w', padx=10, pady=8)
+        entry_locker.grid(row=0, column=1, sticky='w', padx=8, pady=5)
         
-        ttk.Label(frame, text="Nombre: *OBLIGATORIO", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=10, pady=8, columnspan=2)
+        ttk.Label(frame, text="Nombre de referencia:", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=8, pady=5, columnspan=2)
         entry_nombre = ttk.Entry(frame, font=FUENTES['normal'])
-        entry_nombre.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=8)
+        entry_nombre.grid(row=2, column=0, columnspan=2, sticky='ew', padx=8, pady=5)
         
         frame.grid_columnconfigure(1, weight=1)
         
@@ -817,11 +897,7 @@ class AdminWindow(tk.Toplevel):
         
         def confirmar():
             locker_num = int(entry_locker.get())
-            nombre_usuario_custom = entry_nombre.get().strip()
-            
-            if not nombre_usuario_custom:
-                messagebox.showwarning("Campo obligatorio", "Debes especificar un nombre para el usuario.", parent=dialog)
-                return
+            nombre_usuario_custom = entry_nombre.get().strip() or f"Locker {locker_num}"
             
             result['locker_num'] = locker_num
             result['nombre_custom'] = nombre_usuario_custom
@@ -832,7 +908,7 @@ class AdminWindow(tk.Toplevel):
             dialog.destroy()
         
         btn_frame = ttk.Frame(frame)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=12, sticky='ew')
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=6, sticky='ew')
         ttk.Button(btn_frame, text="OK", command=confirmar, style='Primary.TButton').pack(side='left', padx=5)
         ttk.Button(btn_frame, text="Cancelar", command=cancelar, style='Secondary.TButton').pack(side='left', padx=5)
         
@@ -847,50 +923,51 @@ class AdminWindow(tk.Toplevel):
         lockers = self.db.listar_lockers(ADMIN_CONFIG['total_lockers'])
         locker_info = lockers[locker_num - 1]
         
-        if locker_info['estado'] == 'Ocupado':
+        nombre_usuario = f"locker{locker_num}"
+
+        if locker_info['estado'] == 'Ocupado' or self.db.obtener_usuario_por_nombre(nombre_usuario):
             messagebox.showwarning("Locker ocupado", f"Locker {locker_num} ya está ocupado por {locker_info['usuario']}.")
             return
-        
-        nombre_usuario = nombre_usuario_custom
-        
-        try:
-            if self.db.obtener_usuario_por_nombre(nombre_usuario):
-                messagebox.showerror("Error", f"El usuario '{nombre_usuario}' ya existe.")
-                return
-            
-            usuario_id = self.db.guardar_usuario(nombre_usuario, "1234", 'usuario')
-            
-            self._capturar_locker_manual(locker_num, nombre_usuario, usuario_id)
-            
-        except Exception as e:
-            messagebox.showerror("Error", f"Error al crear usuario: {e}")
+
+        self._capturar_locker_manual(locker_num, nombre_usuario, nombre_usuario_custom)
     
-    def _capturar_locker_manual(self, locker_num, nombre_usuario, usuario_id):
+    def _capturar_locker_manual(self, locker_num, nombre_usuario, nombre_referencia):
         """Captura rostro para locker específico"""
+        if self.camera is None:
+            try:
+                self.camera = Camera(0)
+                self.camera.iniciar()
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo iniciar la cámara: {e}", parent=self)
+                return
+
         captura_win = tk.Toplevel(self)
         captura_win.title(f"Capturar rostro - Locker {locker_num}")
-        captura_win.geometry("750x420")
+        captura_win.geometry(WINDOW_SIZE)
         captura_win.configure(bg=COLORES['fondo'])
+        self._preparar_ventana_fullscreen(captura_win)
+        captura_win.transient(self)
+        captura_win.grab_set()
         
         header = ttk.Frame(captura_win, style='Card.TFrame')
-        header.pack(fill='x', padx=10, pady=(10, 5))
+        header.pack(fill='x', padx=6, pady=(6, 3))
         title_box = ttk.Frame(header, style='Card.TFrame')
-        title_box.pack(side='left', fill='x', expand=True, padx=10, pady=10)
+        title_box.pack(side='left', fill='x', expand=True, padx=8, pady=6)
         ttk.Label(title_box, text=f"Capturando rostro para Locker {locker_num}", style='Header.TLabel').pack(anchor='w')
-        ttk.Label(title_box, text=f"Usuario: {nombre_usuario}", style='Subtitle.TLabel').pack(anchor='w', pady=(4, 0))
-        ttk.Button(header, text="Cerrar", command=captura_win.destroy, style='Secondary.TButton').pack(side='right', padx=10, pady=10)
+        ttk.Label(title_box, text=f"Referencia: {nombre_referencia}", style='Subtitle.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Button(header, text="Cerrar", command=captura_win.destroy, style='Secondary.TButton').pack(side='right', padx=8, pady=6)
         
         video_frame = ttk.Frame(captura_win, style='Card.TFrame')
-        video_frame.pack(fill='both', expand=True, padx=10, pady=5)
+        video_frame.pack(fill='both', expand=True, padx=6, pady=3)
         
         label_video = ttk.Label(video_frame, background=COLORES['info_bg'], relief='flat')
-        label_video.pack(fill='both', expand=True, padx=12, pady=12)
+        label_video.pack(fill='both', expand=True, padx=6, pady=6)
         
         captura_disponible = [False]
         frame_actual = [None]
         
         status_label = ttk.Label(captura_win, text="Cargando cámara...", style='Info.TLabel', justify='center', wraplength=700)
-        status_label.pack(fill='x', padx=20, pady=10)
+        status_label.pack(fill='x', padx=10, pady=4)
         
         def actualizar_video():
             try:
@@ -905,15 +982,18 @@ class AdminWindow(tk.Toplevel):
                     for (top, right, bottom, left) in rostros:
                         cv2.rectangle(frame_rgb, (left, top), (right, bottom), (0, 255, 0), 3)
                     
-                    captura_disponible[0] = len(rostros) > 0
-                    
-                    if captura_disponible[0]:
+                    demasiado_cerca = self._esta_demasiado_cerca(frame, rostros)
+                    captura_disponible[0] = bool(rostros) and not demasiado_cerca
+
+                    if demasiado_cerca:
+                        status_label.config(text="Aléjate más de la cámara, estás muy cerca.")
+                    elif captura_disponible[0]:
                         status_label.config(text="✓ Rostro detectado. Presiona 'Capturar rostro' cuando estés listo.")
                     else:
                         status_label.config(text="⊙ No hay rostro detectado. Acércate más a la cámara.")
                     
                     imagen = Image.fromarray(frame_rgb)
-                    imagen.thumbnail((624, 468), Image.Resampling.LANCZOS)
+                    imagen.thumbnail((620, 240), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(image=imagen)
                     label_video.config(image=photo)
                     label_video.image = photo
@@ -932,13 +1012,21 @@ class AdminWindow(tk.Toplevel):
                 return
             
             try:
-                self.face_recognizer.asociar_rostro(nombre_usuario, frame_actual[0])
+                encoding = self.face_recognizer.asociar_rostro(nombre_usuario, frame_actual[0])
+                if encoding is None:
+                    messagebox.showwarning("Atención", "No se pudo extraer el rostro. Ajusta tu posición e inténtalo otra vez.", parent=captura_win)
+                    return
+
+                usuario_id = self.db.guardar_usuario(nombre_usuario, "1234", 'usuario')
                 
                 ret, buffer = cv2.imencode('.jpg', frame_actual[0])
                 if ret:
                     self.db.guardar_imagen(usuario_id, buffer.tobytes())
+
+                if self.locker_controller:
+                    self.locker_controller.activar_locker(locker_num)
                 
-                messagebox.showinfo("¡Listo!", f"Locker {locker_num} está configurado y listo para usar.", parent=captura_win)
+                messagebox.showinfo("¡Listo!", f"Locker {locker_num} está configurado, abierto y listo para usar.", parent=captura_win)
                 self._refrescar_lockers()
                 captura_win.destroy()
                 
@@ -946,8 +1034,8 @@ class AdminWindow(tk.Toplevel):
                 messagebox.showerror("Error", f"Error al guardar: {e}", parent=captura_win)
         
         btn_frame = ttk.Frame(captura_win, style='Card.TFrame')
-        btn_frame.pack(fill='x', padx=10, pady=(0, 12))
-        ttk.Button(btn_frame, text="Capturar rostro", command=capturar, style='Primary.TButton').pack(side='left', fill='x', expand=True, padx=6)
-        ttk.Button(btn_frame, text="Cancelar", command=captura_win.destroy, style='Secondary.TButton').pack(side='left', fill='x', expand=True, padx=6)
+        btn_frame.pack(fill='x', padx=6, pady=(0, 6))
+        ttk.Button(btn_frame, text="Capturar rostro", command=capturar, style='Primary.TButton').pack(side='left', fill='x', expand=True, padx=4)
+        ttk.Button(btn_frame, text="Cancelar", command=captura_win.destroy, style='Secondary.TButton').pack(side='left', fill='x', expand=True, padx=4)
         
         actualizar_video()

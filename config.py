@@ -28,12 +28,12 @@ COLORES = {
 
 # Fuentes
 FUENTES = {
-    "titulo": ("Segoe UI", 16, "bold"),
-    "subtitulo": ("Segoe UI", 10),
-    "boton": ("Segoe UI", 9, "bold"),
+    "titulo": ("Segoe UI", 14, "bold"),
+    "subtitulo": ("Segoe UI", 9),
+    "boton": ("Segoe UI", 8, "bold"),
     "boton_pequeno": ("Segoe UI", 8, "bold"),
     "resultado": ("Segoe UI", 11, "bold"),
-    "normal": ("Segoe UI", 10),
+    "normal": ("Segoe UI", 9),
     "cuenta": ("Segoe UI", 28, "bold")
 }
 
@@ -79,5 +79,5 @@ GPIO_CONFIG = {
 }
 
 # UI
-WINDOW_SIZE = "800x480"  # Pantalla 7 pulgadas Raspberry Pi
-WINDOW_FULLSCREEN = False  # Activado para Raspberry Pi
+WINDOW_SIZE = "800x400"  # Pantalla 7 pulgadas Raspberry Pi
+WINDOW_FULLSCREEN = True  # Pantalla completa; salir con Esc
