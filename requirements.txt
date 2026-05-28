@@ -4,7 +4,4 @@ Pillow
 numpy
 mysql-connector-python
 gpiozero
-
-# Opcional: si deseas usar la librería real face_recognition con dlib
-# face-recognition
-# dlib
+pyttsx3

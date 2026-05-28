@@ -16,13 +16,10 @@ except ImportError:
 
 from config import DB_CONFIG, FACE_CONFIG, CAMERA_CONFIG, GPIO_CONFIG
 
-# Intentar importar gpiozero (solo disponible en Raspberry Pi)
-try:
-    from gpiozero import OutputDevice
-    GPIO_DISPONIBLE = True
-except ImportError:
-    print("[WARNING] gpiozero no disponible. GPIO deshabilitado. Ejecutando en simulación.")
-    GPIO_DISPONIBLE = False
+# Importar gpiozero directamente (sin fallbacks)
+from gpiozero import OutputDevice
+print("[GPIO] ✅ gpiozero cargado - Usando hardware real")
+
 
 
 # ============================================================================
@@ -352,27 +349,53 @@ class Camera:
 # CONTROL DE LOCKERS (GPIO)
 # ============================================================================
 class LockerController:
-    """Control de relés de lockers mediante GPIO (Raspberry Pi)"""
+    """Control de relés de lockers mediante GPIO (Raspberry Pi) - gpiozero directo"""
     
     def __init__(self):
         self.relés = {}
-        self.activo = GPIO_CONFIG['habilitado'] and GPIO_DISPONIBLE
+        self.activo = GPIO_CONFIG['habilitado']
+        self.modo_fallback = False
         
         if not self.activo:
-            print("[GPIO] Control de lockers deshabilitado o gpiozero no disponible")
+            print("[GPIO] Control de lockers deshabilitado")
             return
         
         try:
-            # Inicializar los 4 relés
+            # Intentar inicializar los 4 relés usando OutputDevice de gpiozero
+            print("[GPIO] Inicializando relés con gpiozero...")
+            
+            relés_inicializados = 0
             for locker_num, pin in GPIO_CONFIG['pines'].items():
-                self.relés[locker_num] = OutputDevice(
-                    pin,
-                    active_high=GPIO_CONFIG['active_high']
-                )
-                print(f"[GPIO] Relé locker {locker_num} configurado en pin {pin}")
+                try:
+                    # Crear OutputDevice con active_high=False e initial_value=False (desactivado)
+                    relay = OutputDevice(
+                        pin=pin,
+                        active_high=False,
+                        initial_value=False
+                    )
+                    self.relés[locker_num] = relay
+                    print(f"[GPIO] ✅ Relé locker {locker_num} configurado en pin {pin}")
+                    relés_inicializados += 1
+                    
+                except Exception as pin_error:
+                    print(f"[GPIO] ⚠️ No se pudo inicializar pin {pin} para locker {locker_num}: {pin_error}")
+                    # Continuar intentando con otros pines
+            
+            if relés_inicializados == 4:
+                print("[GPIO] ✅ TODOS LOS RELÉS INICIALIZADOS CORRECTAMENTE")
+            elif relés_inicializados > 0:
+                print(f"[GPIO] ⚠️ Solo se inicializaron {relés_inicializados}/4 relés")
+            else:
+                print(f"[GPIO] ❌ No se pudo inicializar ningún relé")
+                print(f"[GPIO] INTENTA EJECUTAR CON: sudo python3 main.py")
+                self.activo = False
+                self.modo_fallback = True
+        
         except Exception as e:
-            print(f"[ERROR] Inicializando GPIO: {e}")
+            print(f"[GPIO] ❌ Error en inicialización: {e}")
+            print(f"[GPIO] INTENTA EJECUTAR CON: sudo python3 main.py")
             self.activo = False
+            self.modo_fallback = True
     
     def activar_locker(self, locker_num):
         """
@@ -380,10 +403,11 @@ class LockerController:
         Se ejecuta en un thread separado para no bloquear la interfaz.
         """
         if not self.activo or locker_num not in self.relés:
-            print(f"[GPIO] Locker {locker_num} no disponible o GPIO deshabilitado")
+            if self.modo_fallback:
+                print(f"[GPIO] ⚠️ Modo fallback: Locker {locker_num} no funciona (GPIO no disponible)")
             return
         
-        # Ejecutar en thread separado para no bloquear
+        # Ejecutar en thread separado
         thread = threading.Thread(
             target=self._pulso_locker,
             args=(locker_num,),
@@ -392,22 +416,17 @@ class LockerController:
         thread.start()
     
     def _pulso_locker(self, locker_num):
-        """Ejecuta el pulso de apertura del locker (bloquea solo este thread)"""
+        """Ejecuta el pulso de apertura del locker"""
         try:
             relé = self.relés[locker_num]
             duracion = GPIO_CONFIG['pulso_duracion']
             
             print(f"[GPIO] 🔓 Activando locker {locker_num} por {duracion}s")
-            
-            # Activar relé (encender = False porque active_high=False)
             relé.on()
             
-            # Esperar el tiempo de pulso
             time.sleep(duracion)
             
-            # Desactivar relé
             relé.off()
-            
             print(f"[GPIO] 🔒 Locker {locker_num} desactivado")
         except Exception as e:
             print(f"[ERROR] Pulsando locker {locker_num}: {e}")

@@ -8,11 +8,32 @@ import threading
 from datetime import datetime
 import time
 import pyttsx3
-import winsound
+import os
 import queue
 
 from config import COLORES, FUENTES, ADMIN_CONFIG, WINDOW_SIZE, WINDOW_FULLSCREEN
 from core import Camera, FaceRecognizer, LockerController
+
+# ============================================================================
+# ENGINE DE VOZ GLOBAL (para evitar memory leaks de pyttsx3)
+# ============================================================================
+_tts_engine = None
+_tts_lock = threading.Lock()
+
+def _inicializar_tts():
+    """Inicializa el engine de texto a voz global"""
+    global _tts_engine
+    try:
+        _tts_engine = pyttsx3.init()
+        _tts_engine.setProperty('rate', 150)
+        _tts_engine.setProperty('volume', 1.0)
+        print("[TTS] ✅ Engine de voz inicializado globalmente")
+    except Exception as e:
+        print(f"[TTS] ❌ Error inicializando engine: {e}")
+        _tts_engine = None
+
+# Inicializar al importar
+_inicializar_tts()
 
 
 # ============================================================================
@@ -89,16 +110,17 @@ class UIApp:
         style.map('TNotebook.Tab', background=[('selected', COLORES['boton_principal'])], foreground=[('selected', COLORES['texto'])])
     
     def _hablar(self, texto):
-        """Pronuncia un texto usando síntesis de voz en un hilo separado"""
+        """Pronuncia un texto usando síntesis de voz global en un hilo separado"""
         def hablar_thread():
+            global _tts_engine
+            if _tts_engine is None:
+                print("[TTS] ⚠️ Engine no inicializado")
+                return
+            
             try:
-                with self.audio_lock:
-                    engine = pyttsx3.init()
-                    engine.setProperty('rate', 150)  # Velocidad de habla
-                    engine.setProperty('volume', 1.0)  # Volumen al máximo
-                    engine.say(texto)
-                    engine.runAndWait()
-                    del engine
+                with _tts_lock:
+                    _tts_engine.say(texto)
+                    _tts_engine.runAndWait()
             except Exception as e:
                 print(f"[TTS] Error al hablar: {e}")
         
@@ -110,7 +132,14 @@ class UIApp:
         """Emite un pitido en un hilo separado para no bloquear la UI."""
         def beep_thread():
             try:
-                winsound.Beep(frecuencia, duracion)
+                # Usar enfoque multiplataforma: bell character para Linux/Mac, paplay para audio si disponible
+                if os.name == 'nt':  # Windows
+                    import winsound
+                    winsound.Beep(frecuencia, duracion)
+                else:  # Linux/Mac
+                    # Usar bell character (simple)
+                    for _ in range(1):
+                        print('\a', end='', flush=True)
             except Exception as e:
                 print(f"[TTS] Error en pitido: {e}")
         threading.Thread(target=beep_thread, daemon=True).start()
@@ -589,22 +618,22 @@ class AdminWindow(tk.Toplevel):
     def __init__(self, parent, db, camera, face_recognizer):
         super().__init__(parent)
         self.title("Panel de Administración")
-        self.geometry("750x450")
+        self.geometry("700x380")
         self.configure(bg=COLORES["fondo"])
         self.db = db
         self.camera = camera
         self.face_recognizer = face_recognizer
         
         header = ttk.Frame(self, style='Card.TFrame')
-        header.pack(fill='x', padx=10, pady=10)
+        header.pack(fill='x', padx=5, pady=5)
         title_box = ttk.Frame(header, style='Card.TFrame')
-        title_box.pack(side='left', fill='x', expand=True, padx=10, pady=10)
+        title_box.pack(side='left', fill='x', expand=True, padx=5, pady=5)
         ttk.Label(title_box, text="Panel de administración", style='Header.TLabel').pack(anchor='w')
-        ttk.Label(title_box, text="Gestiona usuarios y lockers con seguridad.", style='Subtitle.TLabel').pack(anchor='w', pady=(4, 0))
-        ttk.Button(header, text="Cerrar", command=lambda: (self._hablar_admin('Cerrar'), self.destroy()), style='Secondary.TButton').pack(side='right', padx=10, pady=10)
+        ttk.Label(title_box, text="Gestiona usuarios y lockers.", style='Subtitle.TLabel').pack(anchor='w', pady=(2, 0))
+        ttk.Button(header, text="Cerrar", command=lambda: (self._hablar_admin('Cerrar'), self.destroy()), style='Secondary.TButton').pack(side='right', padx=5, pady=5)
         
         notebook = ttk.Notebook(self)
-        notebook.pack(fill='both', expand=True, padx=10, pady=10)
+        notebook.pack(fill='both', expand=True, padx=5, pady=5)
         
         # Pestaña: Usuarios
         usuarios_frame = ttk.Frame(notebook)
@@ -636,53 +665,53 @@ class AdminWindow(tk.Toplevel):
     def _crear_tab_usuarios(self, parent):
         """Crea la pestaña de gestión de usuarios"""
         list_frame = ttk.Frame(parent, style='Card.TFrame')
-        list_frame.pack(side='left', fill='both', expand=True, padx=10, pady=10)
+        list_frame.pack(side='left', fill='both', expand=True, padx=5, pady=5)
         
-        ttk.Label(list_frame, text="Usuarios registrados", style='Section.TLabel').pack(anchor='w', pady=(0, 8), padx=4)
+        ttk.Label(list_frame, text="Usuarios registrados", style='Section.TLabel').pack(anchor='w', pady=(0, 4), padx=2)
         
         self.listbox_usuarios = tk.Listbox(list_frame, font=FUENTES['normal'], bd=0, highlightthickness=1, relief='solid')
-        self.listbox_usuarios.pack(fill='both', expand=True, padx=4, pady=2)
+        self.listbox_usuarios.pack(fill='both', expand=True, padx=2, pady=1)
         
         btn_frame = ttk.Frame(list_frame, style='Card.TFrame')
-        btn_frame.pack(fill='x', pady=8)
-        ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_usuarios()), style='Small.TButton').pack(side='left', padx=2)
-        ttk.Button(btn_frame, text="Eliminar", command=lambda: (self._hablar_admin('Eliminar'), self._eliminar_usuario()), style='Secondary.TButton').pack(side='left', padx=2)
+        btn_frame.pack(fill='x', pady=4, padx=2)
+        ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_usuarios()), style='Small.TButton').pack(side='left', padx=1)
+        ttk.Button(btn_frame, text="Eliminar", command=lambda: (self._hablar_admin('Eliminar'), self._eliminar_usuario()), style='Secondary.TButton').pack(side='left', padx=1)
         
         form_frame = ttk.LabelFrame(parent, text="Agregar administrador", style='Card.TFrame')
-        form_frame.pack(side='right', fill='both', expand=True, padx=10, pady=10)
+        form_frame.pack(side='right', fill='both', expand=True, padx=5, pady=5)
         
-        ttk.Label(form_frame, text="Usuario:", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=10, pady=8)
+        ttk.Label(form_frame, text="Usuario:", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=5, pady=4)
         self.entry_usuario = ttk.Entry(form_frame, font=FUENTES['normal'])
-        self.entry_usuario.grid(row=0, column=1, sticky='ew', padx=10, pady=8)
+        self.entry_usuario.grid(row=0, column=1, sticky='ew', padx=5, pady=4)
         
-        ttk.Label(form_frame, text="Contraseña:", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=10, pady=8)
+        ttk.Label(form_frame, text="Contraseña:", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=5, pady=4)
         self.entry_pass = ttk.Entry(form_frame, show='*', font=FUENTES['normal'])
-        self.entry_pass.grid(row=1, column=1, sticky='ew', padx=10, pady=8)
+        self.entry_pass.grid(row=1, column=1, sticky='ew', padx=5, pady=4)
         
-        ttk.Label(form_frame, text="Rol:", style='Subtitle.TLabel').grid(row=2, column=0, sticky='w', padx=10, pady=8)
+        ttk.Label(form_frame, text="Rol:", style='Subtitle.TLabel').grid(row=2, column=0, sticky='w', padx=5, pady=4)
         rol_label = ttk.Label(form_frame, text="administrador", style='Section.TLabel')
-        rol_label.grid(row=2, column=1, sticky='w', padx=10, pady=8)
+        rol_label.grid(row=2, column=1, sticky='w', padx=5, pady=4)
         
         form_frame.grid_columnconfigure(1, weight=1)
         
-        ttk.Button(form_frame, text="Guardar administrador", command=lambda: (self._hablar_admin('Guardar administrador'), self._guardar_usuario()), style='Primary.TButton').grid(row=3, column=0, columnspan=2, sticky='ew', padx=10, pady=12)
+        ttk.Button(form_frame, text="Guardar administrador", command=lambda: (self._hablar_admin('Guardar administrador'), self._guardar_usuario()), style='Primary.TButton').grid(row=3, column=0, columnspan=2, sticky='ew', padx=5, pady=6)
         
         self._refrescar_usuarios()
     
     def _crear_tab_lockers(self, parent):
         """Crea la pestaña de gestión de lockers"""
         info_frame = ttk.Frame(parent, style='Card.TFrame')
-        info_frame.pack(fill='both', expand=True, padx=10, pady=10)
-        ttk.Label(info_frame, text="Lockers disponibles", style='Section.TLabel').pack(anchor='w', pady=(0, 8), padx=4)
+        info_frame.pack(fill='both', expand=True, padx=5, pady=5)
+        ttk.Label(info_frame, text="Lockers disponibles", style='Section.TLabel').pack(anchor='w', pady=(0, 4), padx=2)
         
-        self.listbox_lockers = tk.Listbox(info_frame, font=FUENTES['normal'], height=10, bd=0, highlightthickness=1, relief='solid')
-        self.listbox_lockers.pack(fill='both', expand=True, padx=4, pady=2)
+        self.listbox_lockers = tk.Listbox(info_frame, font=FUENTES['normal'], height=8, bd=0, highlightthickness=1, relief='solid')
+        self.listbox_lockers.pack(fill='both', expand=True, padx=2, pady=1)
         
         btn_frame = ttk.Frame(info_frame, style='Card.TFrame')
-        btn_frame.pack(fill='x', padx=4, pady=10)
-        ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_lockers()), style='Small.TButton').pack(side='left', padx=2)
-        ttk.Button(btn_frame, text="Liberar seleccionado", command=lambda: (self._hablar_admin('Liberar seleccionado'), self._liberar_locker_seleccionado()), style='Secondary.TButton').pack(side='left', padx=2)
-        ttk.Button(btn_frame, text="Asignar locker", command=self._asignar_locker_manual, style='Primary.TButton').pack(side='left', padx=2)
+        btn_frame.pack(fill='x', padx=2, pady=4)
+        ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_lockers()), style='Small.TButton').pack(side='left', padx=1)
+        ttk.Button(btn_frame, text="Liberar", command=lambda: (self._hablar_admin('Liberar seleccionado'), self._liberar_locker_seleccionado()), style='Secondary.TButton').pack(side='left', padx=1)
+        ttk.Button(btn_frame, text="Asignar", command=self._asignar_locker_manual, style='Primary.TButton').pack(side='left', padx=1)
         
         self._refrescar_lockers()
     

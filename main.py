@@ -5,7 +5,7 @@ Punto de entrada
 """
 import sys
 import os
-import tkinter as tk
+import tkinter as tky
 from tkinter import messagebox
 
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"

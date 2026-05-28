@@ -28,20 +28,20 @@ COLORES = {
 
 # Fuentes
 FUENTES = {
-    "titulo": ("Segoe UI", 20, "bold"),
-    "subtitulo": ("Segoe UI", 12),
-    "boton": ("Segoe UI", 11, "bold"),
-    "boton_pequeno": ("Segoe UI", 9, "bold"),
-    "resultado": ("Segoe UI", 13, "bold"),
-    "normal": ("Segoe UI", 11),
-    "cuenta": ("Segoe UI", 32, "bold")
+    "titulo": ("Segoe UI", 16, "bold"),
+    "subtitulo": ("Segoe UI", 10),
+    "boton": ("Segoe UI", 9, "bold"),
+    "boton_pequeno": ("Segoe UI", 8, "bold"),
+    "resultado": ("Segoe UI", 11, "bold"),
+    "normal": ("Segoe UI", 10),
+    "cuenta": ("Segoe UI", 28, "bold")
 }
 
 # Base de datos
 DB_CONFIG = {
     'host': 'localhost',
-    'user': 'root',
-    'password': '',
+    'user': 'root1',
+    'password': 'micontraseña',
     'database': 'locker_scan'
 }
 
@@ -67,7 +67,7 @@ ADMIN_CONFIG = {
 
 # GPIO - Control de relés de lockers (Raspberry Pi)
 GPIO_CONFIG = {
-    'habilitado': os.environ.get("GPIO_ENABLED", "").lower() in ("1", "true", "yes"),  # Activar/desactivar GPIO
+    'habilitado': True,  # ✅ GPIO HABILITADO - Cambiar a False para deshabilitar
     'pines': {
         1: 17,  # Locker 1
         2: 27,  # Locker 2
@@ -75,7 +75,7 @@ GPIO_CONFIG = {
         4: 23   # Locker 4
     },
     'pulso_duracion': 2.0,  # Duración del pulso en segundos
-    'active_high': False    # Los relés se activan con señal baja (active_high=False)
+    'active_high': True    # ✅ CAMBIAR: Relés se activan con señal ALTA (active_high=True)
 }
 
 # UI
