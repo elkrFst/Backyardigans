@@ -73,6 +73,19 @@ ADMIN_CONFIG = {
     'total_lockers': 4
 }
 
+# GPIO - Control de relés de lockers (Raspberry Pi)
+GPIO_CONFIG = {
+    'habilitado': os.environ.get("GPIO_ENABLED", "").lower() in ("1", "true", "yes"),  # Activar/desactivar GPIO
+    'pines': {
+        1: 17,  # Locker 1
+        2: 27,  # Locker 2
+        3: 22,  # Locker 3
+        4: 23   # Locker 4
+    },
+    'pulso_duracion': 2.0,  # Duración del pulso en segundos
+    'active_high': False    # Los relés se activan con señal baja (active_high=False)
+}
+
 # UI
 WINDOW_SIZE = "800x480"  # Pantalla 7 pulgadas Raspberry Pi
 WINDOW_FULLSCREEN = False  # Activado para Raspberry Pi

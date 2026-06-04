@@ -19,7 +19,12 @@ from ui import UIApp
 class DBSimulada:
     """BD simulada para cuando falla la conexión real"""
     def __init__(self):
-        self.usuarios = {}
+        self.usuarios = {
+            'Admin': {
+                'contraseña': 'admin123',
+                'rol': 'administrador'
+            }
+        }
     
     def guardar_usuario(self, nombre, contraseña, rol='usuario'):
         self.usuarios[nombre] = {'contraseña': contraseña, 'rol': rol}
