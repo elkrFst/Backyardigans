@@ -48,7 +48,7 @@ class UIApp:
         self._configurar_estilos()
         
         # Botón Salir persistente
-        self.btn_salir = ttk.Button(self.root, text="Salir", command=self.cerrar, style='Secondary.TButton')
+        self.btn_salir = ttk.Button(self.root, text="❌ Salir", command=self.cerrar, style='Secondary.TButton')
         self.btn_salir.place(relx=0.0, rely=1.0, anchor='sw', x=14, y=-12)
         
         self.mostrar_menu_principal()
@@ -66,18 +66,28 @@ class UIApp:
         style.configure('Header.TLabel', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['titulo'])
         style.configure('Subtitle.TLabel', background=COLORES['panel'], foreground=COLORES['subtexto'], font=FUENTES['subtitulo'])
         style.configure('Card.TFrame', background=COLORES['panel'], borderwidth=0, relief='flat')
-        style.configure('Info.TLabel', background=COLORES['info_bg'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
+        style.configure('Panel.TFrame', background=COLORES['panel'], borderwidth=1, relief='ridge')
+        style.configure('Video.TFrame', background=COLORES['video_bg'], borderwidth=0, relief='flat')
+        style.configure('VideoLabel.TLabel', background=COLORES['video_bg'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
+        style.configure('Info.TFrame', background=COLORES['info_card'], borderwidth=0, relief='flat')
+        style.configure('Info.TLabel', background=COLORES['info_card'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
+        style.configure('Badge.TLabel', background=COLORES['badge_bg'], foreground=COLORES['texto'], font=FUENTES['boton_pequeno'])
         style.configure('Status.TLabel', background=COLORES['panel_sec'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
+        style.configure('Rounded.TButton', font=FUENTES['boton'], padding=(24, 12), background=COLORES['boton_principal'], foreground='#ffffff', borderwidth=0, relief='flat')
+        style.map('Rounded.TButton', background=[('active', COLORES['boton_principal_hover']), ('pressed', COLORES['boton_principal_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
+        style.configure('Rounded.Secondary.TButton', font=FUENTES['boton'], padding=(24, 12), background=COLORES['boton_secundario'], foreground='#ffffff', borderwidth=0, relief='flat')
+        style.map('Rounded.Secondary.TButton', background=[('active', COLORES['boton_secundario_hover']), ('pressed', COLORES['boton_secundario_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
         style.configure('Section.TLabel', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['subtitulo'])
+        style.configure('PanelHeader.TLabel', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['titulo'])
         
-        style.configure('Primary.TButton', font=FUENTES['boton'], padding=12, background=COLORES['boton_principal'], foreground=COLORES['texto'])
-        style.map('Primary.TButton', background=[('active', COLORES['boton_principal_hover'])])
+        style.configure('Primary.TButton', font=FUENTES['boton'], padding=(14, 10), background=COLORES['boton_principal'], foreground='#ffffff', borderwidth=0, relief='flat')
+        style.map('Primary.TButton', background=[('active', COLORES['boton_principal_hover']), ('pressed', COLORES['boton_principal_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
         
-        style.configure('Secondary.TButton', font=FUENTES['boton'], padding=12, background=COLORES['boton_secundario'], foreground=COLORES['texto'])
-        style.map('Secondary.TButton', background=[('active', COLORES['boton_secundario_hover'])])
+        style.configure('Secondary.TButton', font=FUENTES['boton'], padding=(14, 10), background=COLORES['boton_secundario'], foreground='#ffffff', borderwidth=0, relief='flat')
+        style.map('Secondary.TButton', background=[('active', COLORES['boton_secundario_hover']), ('pressed', COLORES['boton_secundario_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
         
-        style.configure('Small.TButton', font=FUENTES['boton_pequeno'], padding=8, background=COLORES['boton_secundario'], foreground=COLORES['texto'])
-        style.map('Small.TButton', background=[('active', COLORES['boton_secundario_hover'])])
+        style.configure('Small.TButton', font=FUENTES['boton_pequeno'], padding=8, background=COLORES['boton_secundario'], foreground='#ffffff', borderwidth=0, relief='flat')
+        style.map('Small.TButton', background=[('active', COLORES['boton_secundario_hover']), ('pressed', COLORES['boton_secundario_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
         
         style.configure('TNotebook', background=COLORES['fondo'], borderwidth=0)
         style.configure('TNotebook.Tab', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['boton'], padding=[12, 8])
@@ -89,6 +99,78 @@ class UIApp:
             if widget != self.btn_salir:
                 widget.destroy()
     
+    def _crear_contenedor_video(self, parent, width=620, height=340):
+        """Crea un contenedor de video con borde redondeado estilo referencia.
+
+        Dibuja múltiples contornos para simular un halo suave y coloca el
+        `ttk.Frame` interior para el video.
+        """
+        canvas = tk.Canvas(parent, width=width, height=height, highlightthickness=0, bg=COLORES['fondo'])
+
+        # Parámetros ajustables para parecerse a la referencia
+        radius = 24
+        padding = 8
+        border_color = COLORES.get('video_border', COLORES['outline'])
+        halo_color = COLORES.get('video_halo', '#5fb0ff')
+        fill_color = COLORES['video_bg']
+
+        # Util: convierte hex -> (r,g,b)
+        def _hex_to_rgb(h):
+            h = h.lstrip('#')
+            return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+        # Util: convierte (r,g,b) -> hex
+        def _rgb_to_hex(rgb):
+            return '#%02x%02x%02x' % (max(0, min(255, int(rgb[0]))), max(0, min(255, int(rgb[1]))), max(0, min(255, int(rgb[2]))))
+
+        # Mezcla lineal entre dos hex
+        def _lerp_hex(a, b, t):
+            ra, ga, ba = _hex_to_rgb(a)
+            rb, gb, bb = _hex_to_rgb(b)
+            r = ra + (rb - ra) * t
+            g = ga + (gb - ga) * t
+            b_ = ba + (bb - ba) * t
+            return _rgb_to_hex((r, g, b_))
+
+        # Helper: dibuja rectángulo redondeado usando create_polygon suavizado
+        def _round_rect(cnv, x1, y1, x2, y2, r, **kwargs):
+            points = [
+                x1 + r, y1,
+                x2 - r, y1,
+                x2, y1,
+                x2, y1 + r,
+                x2, y2 - r,
+                x2, y2,
+                x2 - r, y2,
+                x1 + r, y2,
+                x1, y2,
+                x1, y2 - r,
+                x1, y1 + r,
+                x1, y1,
+            ]
+            return cnv.create_polygon(points, smooth=True, **kwargs)
+
+        # Simular halo: dibujar varios contornos entre halo_color y border_color
+        glow_steps = 6
+        for i in range(glow_steps):
+            t = i / float(glow_steps - 1)
+            # más externo = más cercano al halo_color
+            col = _lerp_hex(halo_color, border_color, t * 0.9)
+            spread = int((glow_steps - i) * 1.6)
+            _round_rect(canvas, -spread, -spread, width + spread, height + spread, radius + spread, fill=col, outline=col)
+
+        # Border principal
+        _round_rect(canvas, 0, 0, width, height, radius, fill=border_color, outline=border_color)
+
+        # Interior (fondo del video)
+        _round_rect(canvas, padding, padding, width - padding, height - padding, max(6, radius - 6), fill=fill_color, outline=fill_color)
+
+        # Frame interior donde se alojará el label de video
+        video_card = ttk.Frame(parent, style='Video.TFrame')
+        canvas.create_window(width / 2, height / 2, window=video_card, width=width - padding * 2, height=height - padding * 2)
+
+        return canvas, video_card
+
     def mostrar_menu_principal(self):
         """Pantalla principal con video y opciones"""
         print("[UI] Iniciando menú principal...")
@@ -101,42 +183,44 @@ class UIApp:
             
             title_frame = ttk.Frame(header, style='Card.TFrame')
             title_frame.pack(side='left', fill='x', expand=True, padx=(10, 0), pady=10)
-            ttk.Label(title_frame, text="Smart Locker", style='Header.TLabel').pack(anchor='w')
-            ttk.Label(title_frame, text="Abre tu locker con tu rostro de forma rápida y segura.", style='Subtitle.TLabel').pack(anchor='w', pady=(4, 0))
+            ttk.Label(title_frame, text="Sistema Biométrico de Acceso SecureLock", style='Header.TLabel').pack(anchor='w')
+            ttk.Label(title_frame, text="Autenticación Facial: Acceso rápido, seguro y manos libres.", style='Subtitle.TLabel').pack(anchor='w', pady=(4, 0))
             
             action_frame = ttk.Frame(header, style='Card.TFrame')
             action_frame.pack(side='right', padx=10, pady=10)
-            ttk.Button(action_frame, text="Panel administrador", command=self.abrir_admin, style='Small.TButton').pack()
+            ttk.Button(action_frame, text="👤 Panel administrador", command=self.abrir_admin, style='Small.TButton').pack()
             
             contenido = ttk.Frame(self.root, style='Card.TFrame')
             contenido.pack(fill='both', expand=True, padx=10, pady=5)
             
             video_frame = ttk.Frame(contenido, style='Card.TFrame')
-            video_frame.pack(side='left', fill='both', expand=True, padx=(0, 5), pady=5)
+            video_frame.pack(side='left', fill='both', expand=True, padx=(0, 0), pady=5)
             ttk.Label(video_frame, text="Vista en vivo", style='Section.TLabel').pack(anchor='w', padx=12, pady=(12, 4))
-            video_card = ttk.Frame(video_frame, style='Card.TFrame')
-            video_card.pack(fill='both', expand=True, padx=10, pady=(0, 10))
-            self.label_video = ttk.Label(video_card, background=COLORES['info_bg'], relief='flat')
+            video_outer, video_card = self._crear_contenedor_video(video_frame)
+            video_outer.pack(padx=10, pady=(0, 10))
+            self.label_video = ttk.Label(video_card, style='VideoLabel.TLabel', text="Cargando cámara...", anchor='center')
             self.label_video.pack(fill='both', expand=True, padx=12, pady=12)
             
             info_frame = ttk.Frame(contenido, style='Card.TFrame')
             info_frame.pack(side='right', fill='y', ipadx=10, ipady=10, padx=(5, 0), pady=5)
-            ttk.Label(info_frame, text="Estado del sistema", style='Section.TLabel').pack(anchor='w', padx=12, pady=(12, 4))
+            ttk.Label(info_frame, text="ESTADO DEL SISTEMA", style='Section.TLabel').pack(anchor='w', padx=12, pady=(12, 4))
+            ttk.Label(info_frame, text="SELECCIONE ACCIÓN DE USUARIO:", style='Subtitle.TLabel', wraplength=280, justify='left').pack(anchor='w', padx=12, pady=(0, 10))
             
-            self.lbl_estado = ttk.Label(info_frame, text="Elige una opción para comenzar.", style='Info.TLabel', justify='left', wraplength=280)
-            self.lbl_estado.pack(fill='x', padx=12, pady=(0, 10))
-            
-            status_card = ttk.Frame(info_frame, style='Card.TFrame')
+            status_card = ttk.Frame(info_frame, style='Info.TFrame')
             status_card.pack(fill='x', padx=12, pady=(0, 10))
-            self.lbl_resumen = ttk.Label(status_card, text="Cargando estado de lockers...", style='Status.TLabel', justify='left', wraplength=260)
-            self.lbl_resumen.pack(fill='x', padx=10, pady=10)
+            ttk.Label(status_card, text="🔒 ESTADO DEL SISTEMA", style='Badge.TLabel', anchor='w', justify='left').pack(fill='x', padx=10, pady=(10, 4))
+            self.lbl_resumen = ttk.Label(status_card, text="Cargando estado de lockers...", style='Badge.TLabel', justify='left', wraplength=260)
+            self.lbl_resumen.pack(fill='x', padx=10, pady=(0, 8))
+            ttk.Label(status_card, text="SISTEMA SEGURO", style='Badge.TLabel', anchor='e', justify='right').pack(anchor='e', padx=10, pady=(0, 10))
             
             botones_frame = ttk.Frame(info_frame, style='Card.TFrame')
             botones_frame.pack(fill='x', padx=12, pady=10)
-            ttk.Button(botones_frame, text="Abrir mi locker", command=self.iniciar_acceso, style='Primary.TButton').pack(fill='x', pady=6)
-            ttk.Button(botones_frame, text="Registrar rostro", command=self.iniciar_registro, style='Secondary.TButton').pack(fill='x', pady=6)
+            ttk.Button(botones_frame, text="🔓 Abrir mi locker", command=self.iniciar_acceso, style='Rounded.TButton').pack(fill='x', pady=6)
+            ttk.Button(botones_frame, text="➕ Registrar rostro", command=self.iniciar_registro, style='Rounded.Secondary.TButton').pack(fill='x', pady=6)
             
-            ttk.Label(info_frame, text="Consejo: mantén el rostro centrado y evita sombras.", style='Subtitle.TLabel', wraplength=280, justify='left').pack(fill='x', padx=12, pady=(12, 0))
+            footer_card = ttk.Frame(info_frame, style='Info.TFrame')
+            footer_card.pack(fill='x', padx=12, pady=(10, 0))
+            ttk.Label(footer_card, text="Consejo: mantén el rostro centrado y evita sombras.", style='Subtitle.TLabel', wraplength=260, justify='left').pack(fill='x', padx=10, pady=12)
             
             self._actualizar_resumen_lockers()
             self._iniciar_preview_camara()
@@ -228,12 +312,14 @@ class UIApp:
         header = ttk.Frame(self.root, style='Card.TFrame')
         header.pack(fill='x', padx=10, pady=(10, 5))
         ttk.Label(header, text="Abrir locker", style='Header.TLabel').pack(side='left', padx=12, pady=10)
-        ttk.Button(header, text="Volver", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='right', padx=12, pady=10)
+        ttk.Button(header, text="⬅️ Volver", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='right', padx=12, pady=10)
         
-        self.label_video = ttk.Label(self.root, background=COLORES['info_bg'], relief='flat')
-        self.label_video.pack(fill='both', expand=True, padx=10, pady=10)
+        video_outer, video_card = self._crear_contenedor_video(self.root, width=760, height=360)
+        video_outer.pack(padx=10, pady=(10, 8))
+        self.label_video = ttk.Label(video_card, style='VideoLabel.TLabel', text="Cargando cámara...", anchor='center')
+        self.label_video.pack(fill='both', expand=True, padx=12, pady=12)
         
-        self.lbl_estado = ttk.Label(self.root, text="Acércate a la cámara. Tu locker se abrirá automáticamente cuando te reconozca.", style='Info.TLabel', justify='center', wraplength=600)
+        self.lbl_estado = ttk.Label(self.root, text="Acércate a la cámara. Tu locker se abrirá automáticamente cuando te reconozca.", style='Info.TLabel', justify='center', wraplength=760)
         self.lbl_estado.pack(fill='x', padx=20, pady=(0, 10))
         
         self._reconocer_acceso()
@@ -279,6 +365,10 @@ class UIApp:
         
         self.root.after(200, self._reconocer_acceso)
     
+    def ver_historial(self):
+        """Muestra un historial de acceso rápido."""
+        messagebox.showinfo("Historial", "Funcionalidad de historial aún no implementada. Aquí se mostrarían accesos recientes.")
+
     def iniciar_registro(self):
         """Inicia proceso de registro de nuevo rostro - asigna automáticamente al locker disponible"""
         lockers = self.db.listar_lockers(ADMIN_CONFIG['total_lockers'])
@@ -307,18 +397,20 @@ class UIApp:
         header = ttk.Frame(self.root, style='Card.TFrame')
         header.pack(fill='x', padx=10, pady=(10, 5))
         ttk.Label(header, text="Registrar nuevo rostro", style='Header.TLabel').pack(side='left', padx=12, pady=10)
-        ttk.Button(header, text="Volver", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='right', padx=12, pady=10)
+        ttk.Button(header, text="⬅️ Volver", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='right', padx=12, pady=10)
         
-        self.label_video = ttk.Label(self.root, background=COLORES['info_bg'], relief='flat')
-        self.label_video.pack(fill='both', expand=True, padx=10, pady=10)
+        video_outer, video_card = self._crear_contenedor_video(self.root, width=760, height=360)
+        video_outer.pack(padx=10, pady=(10, 8))
+        self.label_video = ttk.Label(video_card, style='VideoLabel.TLabel', text="Cargando cámara...", anchor='center')
+        self.label_video.pack(fill='both', expand=True, padx=12, pady=12)
         
-        self.lbl_estado = ttk.Label(self.root, text=f"Vamos a configurar tu Locker {locker_asignado}. Mantén la cara centrada y sonríe naturalmente.", style='Info.TLabel', justify='center', wraplength=700)
+        self.lbl_estado = ttk.Label(self.root, text=f"Vamos a configurar tu Locker {locker_asignado}. Mantén la cara centrada y sonríe naturalmente.", style='Info.TLabel', justify='center', wraplength=760)
         self.lbl_estado.pack(fill='x', padx=20, pady=(0, 10))
         
         botones = ttk.Frame(self.root, style='Card.TFrame')
         botones.pack(fill='x', padx=10, pady=(0, 16))
-        ttk.Button(botones, text="Capturar rostro", command=self._capturar_registro, style='Primary.TButton').pack(side='left', fill='x', expand=True, padx=6)
-        ttk.Button(botones, text="Cancelar", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='left', fill='x', expand=True, padx=6)
+        ttk.Button(botones, text="📷 Capturar rostro", command=self._capturar_registro, style='Primary.TButton').pack(side='left', fill='x', expand=True, padx=6)
+        ttk.Button(botones, text="❌ Cancelar", command=self.mostrar_menu_principal, style='Secondary.TButton').pack(side='left', fill='x', expand=True, padx=6)
         
         self.captura_disponible = False
         self._mostrar_registro(nombre_usuario, usuario_id, locker_asignado)
@@ -446,8 +538,8 @@ class UIApp:
         btn_frame = ttk.Frame(frame)
         btn_frame.grid(row=2, column=0, columnspan=2, pady=10)
 
-        ttk.Button(btn_frame, text="Ingresar", command=login, style='Primary.TButton').pack(side='left', padx=5)
-        ttk.Button(btn_frame, text="Cancelar", command=cancelar, style='Secondary.TButton').pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="🔑 Ingresar", command=login, style='Primary.TButton').pack(side='left', padx=5)
+        ttk.Button(btn_frame, text="❌ Cancelar", command=cancelar, style='Secondary.TButton').pack(side='left', padx=5)
 
         # Bind Enter para login
         entry_pass.bind('<Return>', lambda e: login())

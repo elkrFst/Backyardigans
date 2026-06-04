@@ -5,18 +5,26 @@ import os
 DEBUG = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-# Colores (tema limpio y amigable)
+# Colores (tema oscuro profesional)
 COLORES = {
-    "fondo": "#f5f7fb",
-    "panel": "#ffffff",
-    "panel_sec": "#eef2f7",
-    "info_bg": "#e5f1ff",
-    "texto": "#102a43",
-    "subtexto": "#475569",
-    "boton_principal": "#2563eb",
-    "boton_principal_hover": "#1d4ed8",
-    "boton_secundario": "#0ea5e9",
-    "boton_secundario_hover": "#0284c7",
+    "fondo": "#071223",
+    "panel": "#0f1f33",
+    "panel_sec": "#102a44",
+    "info_bg": "#11263b",
+    "texto": "#e2f1ff",
+    "subtexto": "#a8c3eb",
+    "boton_principal": "#0d9488",
+    "boton_principal_hover": "#065f46",
+    "boton_secundario": "#2563eb",
+    "boton_secundario_hover": "#1d4ed8",
+    "panel_header": "#0f172a",
+    "panel_border": "#203a5a",
+    "video_bg": "#11233a",
+        "video_border": "#1f6f9a",
+        "video_halo": "#5fb0ff",
+    "badge_bg": "#18325d",
+    "info_card": "#0f1f33",
+    "outline": "#38bdf8",
     "accento": "#38bdf8",
     "admin": "#ef4444",
     "volver": "#f97316",

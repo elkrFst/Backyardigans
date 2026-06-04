@@ -4,8 +4,14 @@ import cv2
 import threading
 import time
 from datetime import datetime, timezone, timedelta
-import mysql.connector
-from mysql.connector import Error
+try:
+    import mysql.connector
+    from mysql.connector import Error
+    MYSQL_AVAILABLE = True
+except Exception:
+    mysql = None
+    Error = Exception
+    MYSQL_AVAILABLE = False
 
 # Intentar usar face_recognition, sino usar alternativa con OpenCV
 try:
@@ -24,6 +30,8 @@ class Database:
     """Gestión de base de datos MySQL para usuarios y accesos"""
     
     def __init__(self, **config):
+        if not MYSQL_AVAILABLE:
+            raise RuntimeError("mysql.connector no disponible. Instala 'mysql-connector-python' o usa la DBSimulada desde main.py")
         try:
             self.conn = mysql.connector.connect(**config)
             self.cursor = self.conn.cursor()
