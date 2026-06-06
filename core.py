@@ -1,4 +1,4 @@
-"""Lógica de negocio: Base de datos, Reconocimiento facial y Cámara"""
+﻿"""Lógica de negocio: Base de datos, Reconocimiento facial y Cámara"""
 import os
 import cv2
 import threading
@@ -16,9 +16,37 @@ except ImportError:
 
 from config import DB_CONFIG, FACE_CONFIG, CAMERA_CONFIG, GPIO_CONFIG
 
-# Importar gpiozero directamente (sin fallbacks)
-from gpiozero import OutputDevice
-print("[GPIO] ✅ gpiozero cargado - Usando hardware real")
+
+class MockRelay:
+    """Relay simulado para ejecutar la app sin GPIO real."""
+
+    def __init__(self, pin, active_high=True, initial_value=False):
+        self.pin = pin
+        self.active_high = active_high
+        self.value = initial_value
+
+    def on(self):
+        self.value = True
+        print(f"[GPIO SIM] Pin {self.pin} ON")
+
+    def off(self):
+        self.value = False
+        print(f"[GPIO SIM] Pin {self.pin} OFF")
+
+    def close(self):
+        print(f"[GPIO SIM] Pin {self.pin} liberado")
+
+
+try:
+    from gpiozero import OutputDevice
+    GPIO_REAL_DISPONIBLE = True
+except ImportError as e:
+    OutputDevice = MockRelay
+    GPIO_REAL_DISPONIBLE = False
+    print(f"[GPIO] gpiozero no disponible ({e}); usando simulacion")
+
+if GPIO_REAL_DISPONIBLE:
+    print("[GPIO] gpiozero cargado - usando hardware real")
 
 
 
@@ -251,7 +279,7 @@ class FaceRecognizer:
         try:
             imagen_rgb = cv2.cvtColor(imagen_bgr, cv2.COLOR_BGR2RGB)
             
-            # OPTIMIZACIÓN: Redimensionar para procesamiento más rápido
+            # OPTIMIZACION: Redimensionar para procesamiento mas rapido
             imagen_pequena = cv2.resize(imagen_rgb, (0, 0), fx=0.25, fy=0.25)
             encodings = face_recognition.face_encodings(imagen_pequena)
             
@@ -279,7 +307,7 @@ class FaceRecognizer:
         try:
             imagen_rgb = cv2.cvtColor(imagen_bgr, cv2.COLOR_BGR2RGB)
             
-            # OPTIMIZACIÓN: Redimensionar para ir más rápido
+            # OPTIMIZACION: Redimensionar para ir mas rapido
             imagen_pequena = cv2.resize(imagen_rgb, (0, 0), fx=0.5, fy=0.5)
             faces = face_recognition.face_locations(imagen_pequena, model='hog')  # HOG es más rápido que CNN
             
@@ -381,7 +409,7 @@ class LockerController:
         
         try:
             # Intentar inicializar los 4 relés usando OutputDevice de gpiozero
-            print("[GPIO] Inicializando relés con gpiozero...")
+            print("[GPIO] Inicializando reles...")
             
             relés_inicializados = 0
             for locker_num, pin in GPIO_CONFIG['pines'].items():
@@ -389,29 +417,29 @@ class LockerController:
                     # Crear OutputDevice con active_high=False e initial_value=False (desactivado)
                     relay = OutputDevice(
                         pin=pin,
-                        active_high=False,
+                        active_high=GPIO_CONFIG.get('active_high', True),
                         initial_value=False
                     )
                     self.relés[locker_num] = relay
-                    print(f"[GPIO] ✅ Relé locker {locker_num} configurado en pin {pin}")
+                    print(f"[GPIO] Rele locker {locker_num} configurado en pin {pin}")
                     relés_inicializados += 1
                     
                 except Exception as pin_error:
-                    print(f"[GPIO] ⚠️ No se pudo inicializar pin {pin} para locker {locker_num}: {pin_error}")
+                    print(f"[GPIO] No se pudo inicializar pin {pin} para locker {locker_num}: {pin_error}")
                     # Continuar intentando con otros pines
             
             if relés_inicializados == 4:
-                print("[GPIO] ✅ TODOS LOS RELÉS INICIALIZADOS CORRECTAMENTE")
+                print("[GPIO] TODOS LOS RELES INICIALIZADOS CORRECTAMENTE")
             elif relés_inicializados > 0:
-                print(f"[GPIO] ⚠️ Solo se inicializaron {relés_inicializados}/4 relés")
+                print(f"[GPIO] Solo se inicializaron {relés_inicializados}/4 relés")
             else:
-                print(f"[GPIO] ❌ No se pudo inicializar ningún relé")
+                print(f"[GPIO] No se pudo inicializar ningún relé")
                 print(f"[GPIO] INTENTA EJECUTAR CON: sudo python3 main.py")
                 self.activo = False
                 self.modo_fallback = True
         
         except Exception as e:
-            print(f"[GPIO] ❌ Error en inicialización: {e}")
+            print(f"[GPIO] Error en inicialización: {e}")
             print(f"[GPIO] INTENTA EJECUTAR CON: sudo python3 main.py")
             self.activo = False
             self.modo_fallback = True
@@ -423,7 +451,7 @@ class LockerController:
         """
         if not self.activo or locker_num not in self.relés:
             if self.modo_fallback:
-                print(f"[GPIO] ⚠️ Modo fallback: Locker {locker_num} no funciona (GPIO no disponible)")
+                print(f"[GPIO] Modo fallback: Locker {locker_num} no funciona (GPIO no disponible)")
             return
         
         # Ejecutar en thread separado
@@ -440,13 +468,13 @@ class LockerController:
             relé = self.relés[locker_num]
             duracion = GPIO_CONFIG['pulso_duracion']
             
-            print(f"[GPIO] 🔓 Activando locker {locker_num} por {duracion}s")
+            print(f"[GPIO] Activando locker {locker_num} por {duracion}s")
             relé.on()
             
             time.sleep(duracion)
             
             relé.off()
-            print(f"[GPIO] 🔒 Locker {locker_num} desactivado")
+            print(f"[GPIO] Locker {locker_num} desactivado")
         except Exception as e:
             print(f"[ERROR] Pulsando locker {locker_num}: {e}")
     
@@ -474,3 +502,4 @@ class LockerController:
             print("[GPIO] Recursos GPIO liberados")
         except Exception as e:
             print(f"[ERROR] Cerrando GPIO: {e}")
+

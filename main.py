@@ -62,46 +62,24 @@ class DBSimulada:
         return 0
     
     def listar_lockers(self, total=4):
-        usuarios = [u for u in self.listar_usuarios_detallados() if u['rol'] == 'usuario']
-        usuarios_por_locker = {}
-        usuarios_sin_numero = []
-        for usuario in usuarios:
-            nombre = usuario['nombre_usuario']
-            if nombre.startswith('locker'):
-                try:
-                    locker_num = int(nombre.replace('locker', '', 1))
-                    if 1 <= locker_num <= total:
-                        usuarios_por_locker[locker_num] = nombre
-                        continue
-                except ValueError:
-                    pass
-            usuarios_sin_numero.append(nombre)
-
+        usuarios = self.listar_usuarios_detallados()
         lockers = []
         for i in range(1, total + 1):
-            if i in usuarios_por_locker:
-                usr = usuarios_por_locker[i]
+            if i <= len(usuarios):
+                usr = usuarios[i - 1]['nombre_usuario']
                 estado = 'Ocupado'
             else:
                 usr = None
                 estado = 'Libre'
             lockers.append({'locker': i, 'usuario': usr, 'estado': estado})
-
-        for usuario in usuarios_sin_numero:
-            for locker in lockers:
-                if locker['estado'] == 'Libre':
-                    locker['usuario'] = usuario
-                    locker['estado'] = 'Ocupado'
-                    break
-
         return lockers
     
     def liberar_locker(self, locker_num, total=4):
-        lockers = self.listar_lockers(total)
-        locker = lockers[locker_num - 1]
-        if locker['estado'] != 'Ocupado' or not locker['usuario']:
+        usuarios = self.listar_usuarios_detallados()
+        if locker_num > len(usuarios):
             return False
-        return self.eliminar_usuario(locker['usuario']) > 0
+        usuario_nombre = usuarios[locker_num - 1]['nombre_usuario']
+        return self.eliminar_usuario(usuario_nombre) > 0
     
     def cerrar(self):
         pass
