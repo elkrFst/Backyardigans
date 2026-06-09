@@ -5,19 +5,27 @@ import os
 DEBUG = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-# Colores (tema limpio y amigable)
+# Colores (tema Smart Locker: oscuro, tecnologico y claro)
 COLORES = {
-    "fondo": "#f5f7fb",
-    "panel": "#ffffff",
-    "panel_sec": "#eef2f7",
-    "info_bg": "#e5f1ff",
-    "texto": "#102a43",
-    "subtexto": "#475569",
-    "boton_principal": "#2563eb",
-    "boton_principal_hover": "#1d4ed8",
-    "boton_secundario": "#0ea5e9",
-    "boton_secundario_hover": "#0284c7",
-    "accento": "#38bdf8",
+    "fondo": "#07111f",
+    "fondo_alt": "#0b1d33",
+    "panel": "#0f243b",
+    "panel_sec": "#132f4b",
+    "panel_suave": "#173a5e",
+    "info_bg": "#061827",
+    "video_bg": "#020817",
+    "borde": "#25577d",
+    "texto": "#f8fbff",
+    "subtexto": "#a8c7df",
+    "muted": "#6f93ad",
+    "boton_principal": "#00a7e8",
+    "boton_principal_hover": "#22d3ee",
+    "boton_secundario": "#12b981",
+    "boton_secundario_hover": "#2dd4bf",
+    "accento": "#37d5ff",
+    "exito": "#22c55e",
+    "alerta": "#f59e0b",
+    "error": "#ef4444",
     "admin": "#ef4444",
     "volver": "#f97316",
     "capturar": "#22c55e",
@@ -28,12 +36,12 @@ COLORES = {
 
 # Fuentes
 FUENTES = {
-    "titulo": ("Segoe UI", 14, "bold"),
-    "subtitulo": ("Segoe UI", 9),
-    "boton": ("Segoe UI", 8, "bold"),
-    "boton_pequeno": ("Segoe UI", 8, "bold"),
-    "resultado": ("Segoe UI", 11, "bold"),
-    "normal": ("Segoe UI", 9),
+    "titulo": ("Segoe UI", 18, "bold"),
+    "subtitulo": ("Segoe UI", 10),
+    "boton": ("Segoe UI", 11, "bold"),
+    "boton_pequeno": ("Segoe UI", 9, "bold"),
+    "resultado": ("Segoe UI", 12, "bold"),
+    "normal": ("Segoe UI", 10),
     "cuenta": ("Segoe UI", 28, "bold")
 }
 

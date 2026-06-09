@@ -97,21 +97,21 @@ def main():
         print("[INFO] Intentando conectar a MySQL...")
         try:
             db = Database(**DB_CONFIG)
-            print("[OK] ✅ Conectado a MySQL")
+            print("[OK] Conectado a MySQL")
         except Exception as e:
-            print(f"[ERROR] ❌ No se pudo conectar a MySQL: {e}")
+            print(f"[ERROR] No se pudo conectar a MySQL: {e}")
             print("[INFO] Usando base de datos simulada (DEMO MODE)")
             db = DBSimulada()
         
         # Inicializar reconocedor de rostros
         print("[INFO] Inicializando reconocedor facial...")
         face_recognizer = FaceRecognizer()
-        print("[OK] ✅ Reconocedor listo")
+        print("[OK] Reconocedor listo")
         
         # Crear interfaz gráfica
         print("[INFO] Abriendo interfaz gráfica...")
         app = UIApp(root, db, face_recognizer)
-        print("[OK] ✅ Aplicación iniciada")
+        print("[OK] Aplicacion iniciada")
         
         root.mainloop()
     
