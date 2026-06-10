@@ -269,3 +269,57 @@ img {
         width: calc(100% - 24px);
     }
 }
+
+/* Lockers grid styles - tarjetas visuales */
+.locker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+}
+.locker-card {
+    padding: 16px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+    border: 1px solid rgba(255,255,255,0.06);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.locker-emoji {
+    font-size: 2.4rem;
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.03);
+}
+.locker-card h4 {
+    margin: 0 0 4px 0;
+    font-size: 1.05rem;
+}
+.locker-user {
+    margin: 0;
+    color: rgba(248,250,252,0.78);
+    font-size: 0.95rem;
+}
+.locker-status {
+    margin-left: auto;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #fff;
+}
+.locker-status.free {
+    background: var(--success);
+}
+.locker-status.occupied {
+    background: linear-gradient(90deg, #ef4444, #b91c1c);
+}
+
+@media (max-width: 720px) {
+    .locker-emoji { font-size: 2rem; width:48px; height:48px }
+}

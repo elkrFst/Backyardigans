@@ -92,11 +92,16 @@ class UIApp:
         style.configure('Primary.TButton', font=FUENTES['boton'], padding=(14, 10), background=COLORES['boton_principal'], foreground='#ffffff', borderwidth=0, relief='flat')
         style.map('Primary.TButton', background=[('active', COLORES['boton_principal_hover']), ('pressed', COLORES['boton_principal_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
         
+        style.configure('Accent.TButton', font=FUENTES['boton'], padding=(14, 10), background=COLORES['agregar'], foreground='#ffffff', borderwidth=0, relief='flat')
+        style.map('Accent.TButton', background=[('active', COLORES['boton_principal_hover']), ('pressed', COLORES['boton_principal_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
+        
         style.configure('Secondary.TButton', font=FUENTES['boton'], padding=(14, 10), background=COLORES['boton_secundario'], foreground='#ffffff', borderwidth=0, relief='flat')
         style.map('Secondary.TButton', background=[('active', COLORES['boton_secundario_hover']), ('pressed', COLORES['boton_secundario_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
         
         style.configure('Small.TButton', font=FUENTES['boton_pequeno'], padding=8, background=COLORES['boton_secundario'], foreground='#ffffff', borderwidth=0, relief='flat')
         style.map('Small.TButton', background=[('active', COLORES['boton_secundario_hover']), ('pressed', COLORES['boton_secundario_hover'])], foreground=[('active', '#ffffff'), ('pressed', '#ffffff')])
+        
+        style.configure('PanelSelected.TFrame', background=COLORES['outline'], borderwidth=2, relief='solid')
         
         style.configure('TNotebook', background=COLORES['fondo'], borderwidth=0)
         style.configure('TNotebook.Tab', background=COLORES['panel'], foreground=COLORES['texto'], font=FUENTES['boton'], padding=[12, 8])
@@ -637,7 +642,7 @@ class UIApp:
                     return
 
                 login_win.destroy()
-                AdminWindow(self.root, self.db, self.camera, self.face_recognizer)
+                AdminWindow(self.root, self, self.db, self.camera, self.face_recognizer)
 
             except Exception as e:
                 messagebox.showerror("Error", f"Error de conexión: {e}", parent=login_win)
@@ -677,8 +682,9 @@ class UIApp:
 class AdminWindow(tk.Toplevel):
     """Panel de administración de usuarios"""
     
-    def __init__(self, parent, db, camera, face_recognizer):
+    def __init__(self, parent, app, db, camera, face_recognizer):
         super().__init__(parent)
+        self.app = app
         self.title("Panel de Administración")
         self.geometry("750x450")
         self.configure(bg=COLORES["fondo"])
@@ -726,21 +732,8 @@ class AdminWindow(tk.Toplevel):
     
     def _crear_tab_usuarios(self, parent):
         """Crea la pestaña de gestión de usuarios"""
-        list_frame = ttk.Frame(parent, style='Card.TFrame')
-        list_frame.pack(side='left', fill='both', expand=True, padx=10, pady=10)
-        
-        ttk.Label(list_frame, text="Usuarios registrados", style='Section.TLabel').pack(anchor='w', pady=(0, 8), padx=4)
-        
-        self.listbox_usuarios = tk.Listbox(list_frame, font=FUENTES['normal'], bd=0, highlightthickness=1, relief='solid')
-        self.listbox_usuarios.pack(fill='both', expand=True, padx=4, pady=2)
-        
-        btn_frame = ttk.Frame(list_frame, style='Card.TFrame')
-        btn_frame.pack(fill='x', pady=8)
-        ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_usuarios()), style='Small.TButton').pack(side='left', padx=2)
-        ttk.Button(btn_frame, text="Eliminar", command=lambda: (self._hablar_admin('Eliminar'), self._eliminar_usuario()), style='Secondary.TButton').pack(side='left', padx=2)
-        
         form_frame = ttk.LabelFrame(parent, text="Agregar administrador", style='Card.TFrame')
-        form_frame.pack(side='right', fill='both', expand=True, padx=10, pady=10)
+        form_frame.pack(side='left', fill='both', expand=True, padx=10, pady=10)
         
         ttk.Label(form_frame, text="Usuario:", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=10, pady=8)
         self.entry_usuario = ttk.Entry(form_frame, font=FUENTES['normal'])
@@ -756,7 +749,21 @@ class AdminWindow(tk.Toplevel):
         
         form_frame.grid_columnconfigure(1, weight=1)
         
-        ttk.Button(form_frame, text="Guardar administrador", command=lambda: (self._hablar_admin('Guardar administrador'), self._guardar_usuario()), style='Primary.TButton').grid(row=3, column=0, columnspan=2, sticky='ew', padx=10, pady=12)
+        ttk.Button(form_frame, text="➕ Agregar administrador", command=lambda: (self._hablar_admin('Agregar administrador'), self._guardar_usuario()), style='Accent.TButton').grid(row=3, column=0, columnspan=2, sticky='ew', padx=10, pady=12)
+        ttk.Button(form_frame, text="🧾 Limpiar campos", command=lambda: (self.entry_usuario.delete(0, tk.END), self.entry_pass.delete(0, tk.END)), style='Secondary.TButton').grid(row=4, column=0, columnspan=2, sticky='ew', padx=10, pady=(0,12))
+        
+        list_frame = ttk.Frame(parent, style='Card.TFrame')
+        list_frame.pack(side='right', fill='both', expand=True, padx=10, pady=10)
+        
+        ttk.Label(list_frame, text="Usuarios registrados", style='Section.TLabel').pack(anchor='w', pady=(0, 8), padx=4)
+        
+        self.listbox_usuarios = tk.Listbox(list_frame, font=FUENTES['normal'], bd=0, highlightthickness=1, relief='solid')
+        self.listbox_usuarios.pack(fill='both', expand=True, padx=4, pady=2)
+        
+        btn_frame = ttk.Frame(list_frame, style='Card.TFrame')
+        btn_frame.pack(fill='x', pady=8)
+        ttk.Button(btn_frame, text="Refrescar", command=lambda: (self._hablar_admin('Refrescar'), self._refrescar_usuarios()), style='Small.TButton').pack(side='left', padx=2)
+        ttk.Button(btn_frame, text="Eliminar", command=lambda: (self._hablar_admin('Eliminar'), self._eliminar_usuario()), style='Secondary.TButton').pack(side='left', padx=2)
         
         self._refrescar_usuarios()
     
@@ -765,9 +772,20 @@ class AdminWindow(tk.Toplevel):
         info_frame = ttk.Frame(parent, style='Card.TFrame')
         info_frame.pack(fill='both', expand=True, padx=10, pady=10)
         ttk.Label(info_frame, text="Lockers disponibles", style='Section.TLabel').pack(anchor='w', pady=(0, 8), padx=4)
-        
-        self.listbox_lockers = tk.Listbox(info_frame, font=FUENTES['normal'], height=10, bd=0, highlightthickness=1, relief='solid')
-        self.listbox_lockers.pack(fill='both', expand=True, padx=4, pady=2)
+
+        # Contenedor desplazable con tarjetas para cada locker (mejor diseño que Listbox)
+        canvas = tk.Canvas(info_frame, background=COLORES['panel'], bd=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(info_frame, orient='vertical', command=canvas.yview)
+        self.lockers_container = ttk.Frame(canvas, style='Card.TFrame')
+
+        canvas.create_window((0, 0), window=self.lockers_container, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.selected_locker = None
+        self.locker_cards = {}
+
+        canvas.pack(side='left', fill='both', expand=True, padx=4, pady=2)
+        scrollbar.pack(side='right', fill='y', padx=(0,4), pady=2)
         
         btn_frame = ttk.Frame(info_frame, style='Card.TFrame')
         btn_frame.pack(fill='x', padx=4, pady=10)
@@ -786,14 +804,60 @@ class AdminWindow(tk.Toplevel):
     
     def _refrescar_lockers(self):
         """Actualiza lista de lockers"""
-        self.listbox_lockers.delete(0, tk.END)
+        # Limpiar contenedor
+        for child in self.lockers_container.winfo_children():
+            child.destroy()
+
         lockers = self.db.listar_lockers(ADMIN_CONFIG['total_lockers'])
         for l in lockers:
-            estado = f"Locker {l['locker']}: {l['estado']}"
-            if l['usuario']:
-                estado += f" - {l['usuario']}"
-            self.listbox_lockers.insert(tk.END, estado)
+            card = ttk.Frame(self.lockers_container, style='Panel.TFrame')
+            card.pack(fill='x', pady=6, padx=6)
+            card.locker_num = l['locker']
+
+            left = ttk.Frame(card, style='Card.TFrame')
+            left.pack(side='left', fill='x', expand=True, padx=(6, 12), pady=8)
+            lbl_title = ttk.Label(left, text=f"Locker {l['locker']}", style='PanelHeader.TLabel')
+            lbl_title.pack(anchor='w')
+            usuario_text = l['usuario'] if l['usuario'] else 'Libre'
+            lbl_user = ttk.Label(left, text=usuario_text, style='Subtitle.TLabel')
+            lbl_user.pack(anchor='w', pady=(2,0))
+
+            estado_frame = ttk.Frame(card, width=110)
+            estado_frame.pack(side='right', padx=8, pady=8)
+            estado_label = ttk.Label(estado_frame, text=l['estado'], style='Status.TLabel')
+            estado_label.pack(anchor='e')
+
+            # Colorificar estado rápidamente
+            if l['estado'].lower().startswith('ocup'):
+                estado_label.configure(background=COLORES.get('danger', '#bf1e2e'))
+            else:
+                estado_label.configure(background=COLORES.get('success', '#16a34a'))
+
+            self.locker_cards[l['locker']] = card
+            for widget in (card, left, lbl_title, lbl_user, estado_frame, estado_label):
+                widget.bind('<Button-1>', lambda event, locker=l['locker']: self._seleccionar_locker(locker))
+
+            if self.selected_locker == l['locker']:
+                card.configure(style='PanelSelected.TFrame')
+            else:
+                card.configure(style='Panel.TFrame')
+
+        # Ajustar scroll region
+        self.lockers_container.update_idletasks()
+        try:
+            parent_canvas = self.lockers_container.master
+            parent_canvas.configure(scrollregion=parent_canvas.bbox('all'))
+        except Exception:
+            pass
     
+    def _seleccionar_locker(self, locker_num):
+        """Selecciona una tarjeta de locker para liberar."""
+        if self.selected_locker == locker_num:
+            return
+        self.selected_locker = locker_num
+        for num, card in self.locker_cards.items():
+            card.configure(style='PanelSelected.TFrame' if num == locker_num else 'Panel.TFrame')
+
     def _guardar_usuario(self):
         """Crea nuevo administrador"""
         nombre = self.entry_usuario.get()
@@ -832,22 +896,21 @@ class AdminWindow(tk.Toplevel):
     
     def _liberar_locker_seleccionado(self):
         """Libera el locker seleccionado"""
-        sel = self.listbox_lockers.curselection()
-        if not sel:
+        if not getattr(self, 'selected_locker', None):
             messagebox.showwarning("Advertencia", "Selecciona un locker")
             return
-        
-        texto = self.listbox_lockers.get(sel[0])
-        locker_num = int(texto.split()[1].rstrip(':'))
-        
+        locker_num = self.selected_locker
         if messagebox.askyesno("Confirmar", f"¿Liberar Locker {locker_num}?"):
             try:
                 self.db.liberar_locker(locker_num, ADMIN_CONFIG['total_lockers'])
+                self.selected_locker = None
                 self._refrescar_lockers()
+                if hasattr(self, 'app') and self.app is not None:
+                    self.app._actualizar_resumen_lockers()
                 messagebox.showinfo("Éxito", f"Locker {locker_num} liberado")
             except Exception as e:
                 messagebox.showerror("Error", f"Error: {e}")
-    
+
     def _asignar_locker_manual(self):
         """Asigna un locker específico manualmente"""
         # Crear ventana para pedir locker y nombre
@@ -865,14 +928,14 @@ class AdminWindow(tk.Toplevel):
         frame.pack(fill='both', expand=True, padx=20, pady=(0, 16))
         
         ttk.Label(frame, text="Locker (1-4):", style='Subtitle.TLabel').grid(row=0, column=0, sticky='w', padx=10, pady=8)
-        entry_locker = ttk.Spinbox(frame, from_=1, to=ADMIN_CONFIG['total_lockers'], width=10, font=FUENTES['normal'])
-        entry_locker.set(1)
+        entry_locker = tk.Spinbox(frame, from_=1, to=ADMIN_CONFIG['total_lockers'], width=8, font=FUENTES['normal'], justify='center')
+        entry_locker.delete(0, 'end')
+        entry_locker.insert(0, '1')
         entry_locker.grid(row=0, column=1, sticky='w', padx=10, pady=8)
         
         ttk.Label(frame, text="Nombre: *OBLIGATORIO", style='Subtitle.TLabel').grid(row=1, column=0, sticky='w', padx=10, pady=8, columnspan=2)
         entry_nombre = ttk.Entry(frame, font=FUENTES['normal'])
         entry_nombre.grid(row=2, column=0, columnspan=2, sticky='ew', padx=10, pady=8)
-        
         frame.grid_columnconfigure(1, weight=1)
         
         result = {'ok': False}
@@ -1002,6 +1065,8 @@ class AdminWindow(tk.Toplevel):
                 
                 messagebox.showinfo("¡Listo!", f"Locker {locker_num} está configurado y listo para usar.", parent=captura_win)
                 self._refrescar_lockers()
+                if hasattr(self, 'app') and self.app is not None:
+                    self.app._actualizar_resumen_lockers()
                 captura_win.destroy()
                 
             except Exception as e:
